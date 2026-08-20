@@ -1,0 +1,53 @@
+import { Router, Request, Response } from 'express';
+import { User, AccessKey, Payment, Ticket, Admin, SystemEvent } from '../models';
+import { authRequired, requirePermission } from '../middleware/auth';
+import { isDBConnected } from '../services/database';
+import { getHealthStatus } from '../services/health';
+import { botManager } from '../bot/BotManager';
+
+const router = Router();
+
+router.get('/stats', authRequired, requirePermission('dashboard:view'), async (_req: Request, res: Response) => {
+  try {
+    const [totalCustomers, activeKeys, pendingPayments, openTickets, resolvedTickets, revokedKeys] =
+      await Promise.all([
+        User.countDocuments(),
+        AccessKey.countDocuments({ status: 'ACTIVE' }),
+        Payment.countDocuments({ status: 'PENDING' }),
+        Ticket.countDocuments({ status: { $in: ['OPEN', 'IN_PROGRESS', 'WAITING_FOR_USER'] } }),
+        Ticket.countDocuments({ status: { $in: ['RESOLVED', 'CLOSED'] } }),
+        AccessKey.countDocuments({ status: 'REVOKED' }),
+      ]);
+
+    res.json({
+      totalCustomers,
+      activeKeys,
+      pendingPayments,
+      openTickets,
+      resolvedTickets,
+      revokedKeys,
+      botConnected: botManager.isConnected(),
+      dbConnected: isDBConnected(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+router.get('/health', authRequired, requirePermission('system:read'), async (_req: Request, res: Response) => {
+  const health = await getHealthStatus(botManager.isConnected());
+  res.json(health);
+});
+
+router.get('/events', authRequired, requirePermission('system:read'), async (req: Request, res: Response) => {
+  const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+  const events = await SystemEvent.find().sort({ at: -1 }).limit(limit);
+  res.json({ items: events });
+});
+
+router.get('/admins', authRequired, requirePermission('admins:read'), async (_req: Request, res: Response) => {
+  const admins = await Admin.find().select('-passwordHash -twoFactorSecret').sort({ createdAt: 1 });
+  res.json({ items: admins });
+});
+
+export default router;

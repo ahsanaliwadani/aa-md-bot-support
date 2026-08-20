@@ -7,7 +7,11 @@ export interface IAccessKey extends Document {
   assignedNumber?: string;
   customerId?: mongoose.Types.ObjectId;
   status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'REVOKED' | 'EXPIRED';
-  createdBy: mongoose.Types.ObjectId;
+  createdBy?: mongoose.Types.ObjectId;
+  serverId: number;
+  serverName: string;
+  serverUrl: string;
+  connectionId: string;
   activatedAt?: Date;
   expiresAt?: Date;
   revokedAt?: Date;
@@ -36,7 +40,11 @@ const AccessKeySchema = new Schema<IAccessKey>(
       default: 'PENDING',
       index: true,
     },
-    createdBy: { type: Schema.Types.ObjectId, ref: 'Admin', required: true },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'Admin' },
+    serverId: { type: Number, required: true, default: 1, index: true },
+    serverName: { type: String, required: true, default: 'Server 1' },
+    serverUrl: { type: String, required: true, default: 'https://193.122.82.38.nip.io' },
+    connectionId: { type: String, required: true, default: 'default', index: true },
     activatedAt: { type: Date },
     expiresAt: { type: Date },
     revokedAt: { type: Date },

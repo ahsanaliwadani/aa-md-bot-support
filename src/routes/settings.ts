@@ -27,8 +27,8 @@ const settingsSchema = z.object({
     .optional(),
   pricing: z
     .object({
-      pakistan: z.object({ amount: z.number(), currency: z.string(), label: z.string() }),
-      international: z.object({ amount: z.number(), currency: z.string(), label: z.string() }),
+      pakistan: z.object({ amount: z.number().min(0), currency: z.string().min(1).max(10), label: z.string().min(1).max(80) }),
+      international: z.object({ amount: z.number().min(0), currency: z.string().min(1).max(10), label: z.string().min(1).max(80) }),
     })
     .optional(),
   paymentInstructions: z.string().max(5000).optional(),

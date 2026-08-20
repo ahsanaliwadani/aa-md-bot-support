@@ -2,7 +2,7 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { AdminInfo, logout } from '../lib/auth';
 import {
   LayoutDashboard, Users, Key, CreditCard, Ticket, HelpCircle,
-  ScrollText, Activity, Settings as SettingsIcon, Shield, LogOut, Bot, MessageSquare,
+  ScrollText, Activity, Settings as SettingsIcon, Shield, LogOut, Bot, MessageSquare, Smartphone,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -13,6 +13,7 @@ const navItems = [
   { to: '/payments', label: 'Payments', icon: CreditCard },
   { to: '/tickets', label: 'Tickets', icon: Ticket },
   { to: '/messages', label: 'Messages', icon: MessageSquare },
+  { to: '/whatsapp-connect', label: 'WhatsApp Connect', icon: Smartphone },
   { to: '/faq', label: 'FAQ', icon: HelpCircle },
   { to: '/admins', label: 'Admins', icon: Shield },
   { to: '/audit-logs', label: 'Audit Logs', icon: ScrollText },

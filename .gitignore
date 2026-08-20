@@ -1,2 +1,23 @@
-node_modules
+# Dependencies
+node_modules/
+dashboard/node_modules/
+
+# Environment / secrets
 .env
+.env.*
+!.env.example
+
+# Build output
+/dist/
+
+# Runtime data - never commit production state
+sessions/
+mongodb/
+backups/
+logs/
+*.log
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/

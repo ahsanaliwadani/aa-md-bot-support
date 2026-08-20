@@ -40,6 +40,11 @@ export interface AccessKey {
   createdAt: string;
   customerId?: { customerId: string; phoneNumber: string; country: string };
   createdBy?: { name: string; email: string };
+  serverId: number;
+  serverName: string;
+  serverUrl: string;
+  connectionId: string;
+  expiresAt?: string;
   history: Array<{ action: string; at: string; detail?: string }>;
 }
 
@@ -108,6 +113,13 @@ export interface AppSettings {
   sessionTimeoutMin: number;
 }
 
+export interface WhatsAppStatus {
+  connected: boolean;
+  qr: string | null;
+  pairingCode: string | null;
+  updatedAt: string | null;
+}
+
 export interface HealthStatus {
   status: string;
   bot: string;
@@ -128,6 +140,8 @@ export interface Paginated<T> {
 export const dashboardApi = {
   getStats: () => api.get<DashboardStats>('/api/dashboard/stats'),
   getHealth: () => api.get<HealthStatus>('/api/dashboard/health'),
+  getWhatsAppStatus: () => api.get<WhatsAppStatus>('/api/dashboard/whatsapp/status'),
+  requestWhatsAppPairingCode: (phone: string) => api.post<{ code: string; phone: string }>('/api/dashboard/whatsapp/pairing-code', { phone }),
 };
 
 export const customerApi = {
@@ -142,10 +156,14 @@ export const customerApi = {
   unblock: (id: string) => api.post(`/api/customers/${id}/unblock`),
 };
 
+export interface AccessKeyServer { id: number; name: string; url: string; }
+
 export const keyApi = {
   list: (params: { page?: number; limit?: number; search?: string; status?: string }) =>
     api.get<Paginated<AccessKey>>(`/api/access-keys?page=${params.page || 1}&limit=${params.limit || 20}&search=${params.search || ''}&status=${params.status || ''}`),
-  generate: () => api.post<{ keyId: string; plainKey: string; displayId: string }>('/api/access-keys/generate'),
+  servers: () => api.get<{ items: AccessKeyServer[] }>('/api/access-keys/servers'),
+  generate: (data?: { serverId?: number; phone?: string; expiresInDays?: number; connectionId?: string }) =>
+    api.post<{ keyId: string; plainKey: string; displayId: string; server: AccessKeyServer; phone?: string; expiresAt?: string; connectionId: string; status: string }>('/api/access-keys/generate', data),
   activate: (keyId: string) => api.post('/api/access-keys/activate', { keyId }),
   suspend: (keyId: string, reason: string) => api.post('/api/access-keys/suspend', { keyId, reason }),
   reactivate: (keyId: string) => api.post('/api/access-keys/reactivate', { keyId }),

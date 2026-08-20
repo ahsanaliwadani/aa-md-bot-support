@@ -48,6 +48,25 @@ aa-md-support-bot/
 
 ## Quick Deploy on Oracle Cloud Ubuntu VM
 
+### One-command Oracle deploy
+
+After SSH into your Oracle Ubuntu VM, run this single command:
+
+```bash
+sudo bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" pull --ff-only; fi; cd "$APP"; bash deploy.sh'
+```
+
+This deploy uses app port `7000`, opens firewall port `7000`, and also configures Nginx so the dashboard works at `http://YOUR_ORACLE_PUBLIC_IP`.
+
+If the project is already uploaded and you are inside the repo, use:
+
+```bash
+sudo bash deploy.sh
+```
+
+See `ORACLE_DEPLOY.md` for the full Oracle checklist, port `7000` links, WhatsApp pairing command, HTTPS setup, and access-key curl command.
+
+
 ### 1. Upload the project to your VM
 
 ```bash
@@ -144,6 +163,7 @@ Users send any of these to the support number:
 | FAQ | Create, edit, delete FAQ entries |
 | Admins | Manage admin users and roles |
 | Audit Logs | View all admin actions |
+| WhatsApp Connect | Connect the WhatsApp support number from dashboard with pairing code and QR/log fallback |
 | System Health | CPU, RAM, uptime, bot/DB status |
 | Settings | Edit bot name, pricing, messages, support hours |
 
@@ -165,6 +185,8 @@ POST   /api/auth/change-password
 
 GET    /api/dashboard/stats     # Overview statistics
 GET    /api/dashboard/health    # System health
+GET    /api/dashboard/whatsapp/status
+POST   /api/dashboard/whatsapp/pairing-code
 
 GET    /api/customers           # List customers
 GET    /api/customers/:id       # Customer detail
@@ -428,3 +450,76 @@ All configurable from the dashboard Settings page.
 ## License
 
 Proprietary — AA MD Bot. All rights reserved.
+
+## Four-Server Access Key Generation Endpoint
+
+The access-key API can now generate a key for a selected backend server first, then bind it to a phone number and connection ID.
+
+Configured servers:
+
+| Server | URL |
+|--------|-----|
+| Server 1 | `https://193.122.82.38.nip.io` |
+| Server 2 | `https://141-147-132-189.nip.io` |
+| Server 3 | `https://130-110-123-57.nip.io` |
+| Server 4 | `https://144-24-220-107.nip.io` |
+
+### Required secret
+
+Set a strong random API secret in `.env` (deploy.sh generates one automatically):
+
+```env
+ACCESS_KEY_SECRET=<generated-secure-secret>
+```
+
+The deploy script generates `ACCESS_KEY_SECRET` automatically. To rotate it, generate a replacement on your Oracle VM:
+
+```bash
+openssl rand -hex 32
+```
+
+Restart after editing `.env`:
+
+```bash
+pm2 restart aamd-support
+```
+
+### Generate key with Bearer authorization
+
+```bash
+curl -X POST "https://YOUR-DOMAIN/api/access-keys/generate" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_ACCESS_KEY_SECRET" \
+  -d '{
+    "serverId": 1,
+    "phone": "923001234567",
+    "expiresInDays": 30,
+    "connectionId": "default"
+  }'
+```
+
+### Generate key with alternate secret header
+
+```bash
+curl -X POST "https://YOUR-DOMAIN/api/access-keys/generate" \
+  -H "Content-Type: application/json" \
+  -H "X-Access-Key-Secret: YOUR_ACCESS_KEY_SECRET" \
+  -d '{
+    "serverId": 2,
+    "phone": "923001234567",
+    "expiresInDays": 30,
+    "connectionId": "default"
+  }'
+```
+
+`serverId` must be `1`, `2`, `3`, or `4`. There is no generation limit enforced per server. Dashboard users can also select the server from **Access Keys → Generate Access Key by Server**.
+
+## Oracle Cloud deployment checklist
+
+1. Create an Ubuntu VM in Oracle Cloud, open VCN ingress for TCP `22`, `80`, and `443` only.
+2. SSH into the VM and clone/upload this repository to `/opt/aamd-support`.
+3. Run `sudo ./deploy.sh` from the repository root.
+4. Edit `/opt/aamd-support/.env` and set `APP_URL`, `DASHBOARD_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `JWT_SECRET`, `SESSION_SECRET`, and `ACCESS_KEY_SECRET`.
+5. Run `npm run build && npm run build:dashboard` to verify the production build.
+6. Restart with `pm2 restart aamd-support` and verify `curl http://127.0.0.1:3000/health`.
+7. Add HTTPS with `sudo certbot --nginx -d YOUR-DOMAIN`, then set `COOKIE_SECURE=true` and restart PM2.

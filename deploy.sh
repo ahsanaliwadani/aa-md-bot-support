@@ -6,6 +6,7 @@ set -e
 
 APP_DIR="/opt/aamd-support"
 APP_USER="aamd"
+DEFAULT_PORT="7000"
 MONGO_USER="aamduser"
 MONGO_DB="aamd_support"
 MONGO_CONTAINER="aamd-mongo"
@@ -34,7 +35,7 @@ info "=== AA MD Bot Support Deployment ==="
 # ─── 1. Install system dependencies ───
 info "Installing system dependencies..."
 apt-get update -qq
-apt-get install -y -qq curl git ufw nginx software-properties-common
+apt-get install -y -qq curl git ufw nginx software-properties-common rsync openssl ca-certificates
 
 # ─── 2. Install Node.js LTS ───
 if ! command -v node &> /dev/null; then
@@ -69,10 +70,16 @@ fi
 mkdir -p "$APP_DIR"
 mkdir -p "$APP_DIR/sessions" "$APP_DIR/backups" "$APP_DIR/logs" "$APP_DIR/mongodb/data"
 
-# Copy project files if we're in the source directory
+# Copy project files if we're in the source directory and not already inside APP_DIR
 if [ -f "./package.json" ] && [ -d "./src" ]; then
-  info "Copying project files to $APP_DIR..."
-  rsync -a --exclude node_modules --exclude .git --exclude dashboard/node_modules --exclude dashboard/dist --exclude dist ./ "$APP_DIR/"
+  SRC_DIR=$(pwd -P)
+  DEST_DIR=$(mkdir -p "$APP_DIR" && cd "$APP_DIR" && pwd -P)
+  if [ "$SRC_DIR" != "$DEST_DIR" ]; then
+    info "Copying project files to $APP_DIR..."
+    rsync -a --exclude node_modules --exclude .git --exclude dashboard/node_modules --exclude dashboard/dist --exclude dist ./ "$APP_DIR/"
+  else
+    info "Already running from $APP_DIR — skipping self-copy."
+  fi
 fi
 
 # ─── 7. Generate .env if not exists ───
@@ -81,21 +88,25 @@ if [ ! -f "$APP_DIR/.env" ]; then
 
   JWT_SECRET=$(openssl rand -hex 32)
   SESSION_SECRET=$(openssl rand -hex 32)
-  MONGO_PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)
+  MONGO_PASS=$(openssl rand -hex 24)
+  ACCESS_KEY_SECRET=$(openssl rand -hex 32)
+  PUBLIC_IP=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+  APP_PUBLIC_URL="http://${PUBLIC_IP}"
 
   cat > "$APP_DIR/.env" << EOF
 NODE_ENV=production
-PORT=3000
-DASHBOARD_URL=https://support.example.com
-APP_URL=https://support.example.com
+PORT=$DEFAULT_PORT
+DASHBOARD_URL=$APP_PUBLIC_URL
+APP_URL=$APP_PUBLIC_URL
 LOG_LEVEL=info
 
-MONGODB_URI=mongodb://$MONGO_USER:$MONGO_PASS@127.0.0.1:27017/$MONGO_DB?authSource=$MONGO_DB
+MONGODB_URI=mongodb://$MONGO_USER:$MONGO_PASS@127.0.0.1:27017/$MONGO_DB?authSource=admin
 MONGODB_DB_NAME=$MONGO_DB
 
 JWT_SECRET=$JWT_SECRET
 SESSION_SECRET=$SESSION_SECRET
-COOKIE_SECURE=true
+ACCESS_KEY_SECRET=$ACCESS_KEY_SECRET
+COOKIE_SECURE=false
 
 ADMIN_EMAIL=owner@aamdbot.com
 ADMIN_PASSWORD=ChangeMe2026!
@@ -110,16 +121,17 @@ BACKUP_KEEP=7
 EOF
 
   chmod 600 "$APP_DIR/.env"
-  info ".env generated. EDIT $APP_DIR/.env to set your domain and admin password!"
+  info ".env generated. EDIT $APP_DIR/.env to set your domain/admin password and set COOKIE_SECURE=true after HTTPS!"
 else
   info ".env already exists — preserving."
 fi
 
-# Load env vars
-export $(grep -v '^#' "$APP_DIR/.env" | xargs)
+# Read runtime port without sourcing .env, because secrets may contain shell metacharacters.
+APP_PORT=$(grep '^PORT=' "$APP_DIR/.env" | cut -d= -f2- || true)
+APP_PORT=${APP_PORT:-$DEFAULT_PORT}
 
 # ─── 8. Start MongoDB via Docker ───
-MONGO_PASS=$(grep MONGODB_URI "$APP_DIR/.env" | sed 's/.*:\([^@]*\)@.*/\1/')
+MONGO_PASS=$(grep '^MONGODB_URI=' "$APP_DIR/.env" | sed 's/.*:\([^@]*\)@.*/\1/')
 
 if ! docker ps --format '{{.Names}}' | grep -q "$MONGO_CONTAINER"; then
   info "Starting MongoDB container..."
@@ -134,7 +146,7 @@ if ! docker ps --format '{{.Names}}' | grep -q "$MONGO_CONTAINER"; then
       -e MONGO_INITDB_ROOT_USERNAME="$MONGO_USER" \
       -e MONGO_INITDB_ROOT_PASSWORD="$MONGO_PASS" \
       -e MONGO_INITDB_DATABASE="$MONGO_DB" \
-      mongo:7
+      mongo:7 --auth --bind_ip_all
   fi
   info "MongoDB started (bound to 127.0.0.1 only — NOT public)"
 else
@@ -162,6 +174,7 @@ chown -R $APP_USER:$APP_USER "$APP_DIR"
 
 # ─── 13. Configure PM2 ───
 info "Configuring PM2..."
+mkdir -p /etc/pm2
 cat > /etc/pm2/ecosystem.config.js << 'PMEOF'
 module.exports = {
   apps: [{
@@ -180,13 +193,13 @@ module.exports = {
 };
 PMEOF
 
-pm2 start /etc/pm2/ecosystem.config.js || pm2 reload /etc/pm2/ecosystem.config.js
-pm2 save
+sudo -H -u $APP_USER pm2 start /etc/pm2/ecosystem.config.js || sudo -H -u $APP_USER pm2 reload /etc/pm2/ecosystem.config.js
+sudo -H -u $APP_USER pm2 save
 pm2 startup systemd -u $APP_USER --hp /home/$APP_USER || true
 
 # ─── 14. Configure Nginx ───
 info "Configuring Nginx..."
-cat > /etc/nginx/sites-available/aamd-support << 'NGINXEOF'
+cat > /etc/nginx/sites-available/aamd-support << NGINXEOF
 server {
     listen 80;
     server_name _;
@@ -194,15 +207,15 @@ server {
     client_max_body_size 2M;
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:${APP_PORT};
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
     }
 }
 NGINXEOF
@@ -217,13 +230,17 @@ info "Configuring firewall..."
 ufw allow 22/tcp || true
 ufw allow 80/tcp || true
 ufw allow 443/tcp || true
+ufw allow ${APP_PORT}/tcp || true
 ufw --force enable || true
 
 # ─── 16. Health check ───
 info "Running health check..."
 sleep 3
-HEALTH=$(curl -s http://127.0.0.1:3000/health || echo '{"status":"error"}')
+HEALTH=$(curl -fsS http://127.0.0.1:${APP_PORT}/health || echo '{"status":"error"}')
 info "Health: $HEALTH"
+if echo "$HEALTH" | grep -q '"status":"error"'; then
+  warn "Health check did not return OK yet. Check: sudo -H -u $APP_USER pm2 logs aamd-support --lines 100"
+fi
 
 # ─── 17. Summary ───
 echo ""
@@ -231,22 +248,25 @@ echo "========================================"
 echo "  AA MD BOT SUPPORT — DEPLOYMENT COMPLETE"
 echo "========================================"
 echo ""
-echo "Dashboard:  http://YOUR_SERVER_IP"
-echo "API:        http://YOUR_SERVER_IP/api"
-echo "Health:     http://YOUR_SERVER_IP/health"
+PUBLIC_IP=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+echo "Dashboard:  http://${PUBLIC_IP}  (Nginx)"
+echo "Dashboard:  http://${PUBLIC_IP}:${APP_PORT}  (direct app port)"
+echo "API:        http://${PUBLIC_IP}/api"
+echo "Health:     http://${PUBLIC_IP}/health"
+echo "App port:   ${APP_PORT}"
 echo ""
 echo "MongoDB:    $(docker ps --format '{{.Names}} {{.Status}}' | grep $MONGO_CONTAINER || echo 'CHECK NEEDED')"
-echo "PM2:        $(pm2 list --no-color 2>/dev/null | grep aamd || echo 'CHECK NEEDED')"
+echo "PM2:        $(sudo -H -u $APP_USER pm2 list --no-color 2>/dev/null | grep aamd || echo 'CHECK NEEDED')"
 echo "Nginx:      $(systemctl is-active nginx)"
 echo ""
 echo "WhatsApp:   WAITING FOR PAIRING — check PM2 logs for QR code"
-echo "            Run: pm2 logs aamd-support --lines 50"
+echo "            Run: sudo -H -u $APP_USER pm2 logs aamd-support --lines 50"
 echo ""
 echo "IMPORTANT:"
 echo "  1. Edit $APP_DIR/.env — set your domain and admin password"
 echo "  2. For HTTPS: sudo certbot --nginx -d support.yourdomain.com"
 echo "  3. Scan the WhatsApp QR code from PM2 logs"
-echo "  4. Login at http://YOUR_SERVER_IP with your admin email/password"
+echo "  4. Login at http://${PUBLIC_IP} or http://${PUBLIC_IP}:${APP_PORT} with your admin email/password"
 echo ""
 echo "Default admin: owner@aamdbot.com"
 echo "========================================"

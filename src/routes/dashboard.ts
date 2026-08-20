@@ -4,6 +4,8 @@ import { authRequired, requirePermission } from '../middleware/auth';
 import { isDBConnected } from '../services/database';
 import { getHealthStatus } from '../services/health';
 import { botManager } from '../bot/BotManager';
+import { z } from 'zod';
+import { validateBody } from '../middleware/validate';
 
 const router = Router();
 
@@ -38,6 +40,36 @@ router.get('/health', authRequired, requirePermission('system:read'), async (_re
   const health = await getHealthStatus(botManager.isConnected());
   res.json(health);
 });
+
+
+router.get('/whatsapp/status', authRequired, requirePermission('system:read'), async (_req: Request, res: Response) => {
+  res.json(botManager.getConnectionStatus());
+});
+
+const pairingSchema = z.object({
+  phone: z.string().min(7).max(20).transform((value) => value.replace(/[^0-9]/g, '')),
+});
+
+router.post(
+  '/whatsapp/pairing-code',
+  authRequired,
+  requirePermission('system:read'),
+  validateBody(pairingSchema),
+  async (req: Request, res: Response) => {
+    if (botManager.isConnected()) {
+      res.status(400).json({ error: 'WhatsApp is already connected' });
+      return;
+    }
+
+    const code = await botManager.requestPairingCode(req.body.phone);
+    if (!code) {
+      res.status(400).json({ error: 'Pairing code is not available yet. Wait for the bot socket to start, then try again.' });
+      return;
+    }
+
+    res.json({ code, phone: req.body.phone });
+  },
+);
 
 router.get('/events', authRequired, requirePermission('system:read'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);

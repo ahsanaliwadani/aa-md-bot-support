@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { accessKeyService } from '../services';
+import { config } from '../config';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { validateQuery, validateBody } from '../middleware/validate';
 import { paginationSchema } from '../utils/validation';
@@ -25,18 +26,66 @@ router.get(
   },
 );
 
+const generateSchema = z.object({
+  phone: z.string().min(7).max(20).optional(),
+  expiresInDays: z.number().int().min(1).max(3650).optional(),
+  connectionId: z.string().min(1).max(80).default('default'),
+  serverId: z.number().int().min(1).max(4).default(1),
+});
+
+function requestHasAccessKeySecret(req: Request): boolean {
+  if (!config.accessKeySecret) return false;
+  const auth = req.get('authorization') || '';
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const alternate = req.get('x-access-key-secret') || '';
+  return bearer === config.accessKeySecret || alternate === config.accessKeySecret;
+}
+
+router.get('/servers', authRequired, requirePermission('keys:read'), (_req: Request, res: Response) => {
+  res.json({ items: accessKeyService.ACCESS_KEY_SERVERS });
+});
+
 router.post(
   '/generate',
-  authRequired,
-  requirePermission('keys:generate'),
-  audit('KEY_CREATED', 'access_key'),
+  validateBody(generateSchema),
   async (req: Request, res: Response) => {
+    if (requestHasAccessKeySecret(req)) {
+      const result = await accessKeyService.generateKey({
+        phone: req.body.phone,
+        expiresInDays: req.body.expiresInDays,
+        connectionId: req.body.connectionId,
+        serverId: req.body.serverId,
+        activate: true,
+      });
+      res.json(result);
+      return;
+    }
+
+    let authPassed = false;
+    authRequired(req, res, () => {
+      authPassed = true;
+    });
+    if (!authPassed) return;
+
+    let permissionPassed = false;
+    requirePermission('keys:generate')(req, res, () => {
+      permissionPassed = true;
+    });
+    if (!permissionPassed) return;
+
     const admin = await Admin.findById(req.admin!.id);
     if (!admin) {
       res.status(404).json({ error: 'Admin not found' });
       return;
     }
-    const result = await accessKeyService.generateKey(admin._id);
+    const result = await accessKeyService.generateKey({
+      createdBy: admin._id,
+      phone: req.body.phone,
+      expiresInDays: req.body.expiresInDays,
+      connectionId: req.body.connectionId,
+      serverId: req.body.serverId,
+      activate: Boolean(req.body.phone),
+    });
     res.json(result);
   },
 );

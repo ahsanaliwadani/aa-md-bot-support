@@ -21,9 +21,21 @@ export class BotManager {
   private maxReconnect = 10;
   private qrCallback: ((qr: string) => void) | null = null;
   private pairingCodeCallback: ((code: string) => void) | null = null;
+  private latestQr: string | null = null;
+  private latestPairingCode: string | null = null;
+  private lastConnectionUpdateAt: Date | null = null;
 
   isConnected(): boolean {
     return this.connected;
+  }
+
+  getConnectionStatus(): { connected: boolean; qr: string | null; pairingCode: string | null; updatedAt: Date | null } {
+    return {
+      connected: this.connected,
+      qr: this.latestQr,
+      pairingCode: this.latestPairingCode,
+      updatedAt: this.lastConnectionUpdateAt,
+    };
   }
 
   onQR(callback: (qr: string) => void): void {
@@ -59,6 +71,8 @@ export class BotManager {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
+        this.latestQr = qr;
+        this.lastConnectionUpdateAt = new Date();
         logger.info('QR code received — scan to connect');
         qrcode.generate(qr, { small: true }, (code) => {
           console.log(code);
@@ -68,6 +82,9 @@ export class BotManager {
 
       if (connection === 'open') {
         this.connected = true;
+        this.latestQr = null;
+        this.latestPairingCode = null;
+        this.lastConnectionUpdateAt = new Date();
         this.reconnectAttempts = 0;
         logger.info('WhatsApp connected');
         await SystemEvent.create({
@@ -79,6 +96,7 @@ export class BotManager {
 
       if (connection === 'close') {
         this.connected = false;
+        this.lastConnectionUpdateAt = new Date();
         const statusCode = (lastDisconnect?.error as { output?: { statusCode?: number } })
           ?.output?.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
@@ -134,6 +152,10 @@ export class BotManager {
     if (!this.sock) return null;
     try {
       const code = await this.sock.requestPairingCode(phone);
+      if (code) {
+        this.latestPairingCode = code;
+        this.lastConnectionUpdateAt = new Date();
+      }
       if (code && this.pairingCodeCallback) this.pairingCodeCallback(code);
       return code;
     } catch (err) {
@@ -151,6 +173,9 @@ export class BotManager {
       }
       this.sock = null;
       this.connected = false;
+      this.latestQr = null;
+      this.latestPairingCode = null;
+      this.lastConnectionUpdateAt = new Date();
     }
   }
 }

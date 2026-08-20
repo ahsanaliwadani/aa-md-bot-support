@@ -1,17 +1,49 @@
-import { AccessKey, IAccessKey, User, Payment } from '../models';
+import { AccessKey, IAccessKey, User } from '../models';
 import { generateAccessKey, hashKey, maskKey, isValidKeyFormat } from '../utils/crypto';
 import { logger } from '../utils/logger';
 import mongoose from 'mongoose';
+
+export const ACCESS_KEY_SERVERS = [
+  { id: 1, name: 'Server 1', url: 'https://193.122.82.38.nip.io' },
+  { id: 2, name: 'Server 2', url: 'https://141-147-132-189.nip.io' },
+  { id: 3, name: 'Server 3', url: 'https://130-110-123-57.nip.io' },
+  { id: 4, name: 'Server 4', url: 'https://144-24-220-107.nip.io' },
+] as const;
+
+export type AccessKeyServerId = (typeof ACCESS_KEY_SERVERS)[number]['id'];
+
+export interface GenerateKeyInput {
+  createdBy?: mongoose.Types.ObjectId;
+  phone?: string;
+  expiresInDays?: number;
+  connectionId?: string;
+  serverId?: AccessKeyServerId;
+  activate?: boolean;
+}
 
 export interface GenerateKeyResult {
   keyId: string;
   plainKey: string;
   displayId: string;
+  server: (typeof ACCESS_KEY_SERVERS)[number];
+  phone?: string;
+  expiresAt?: Date;
+  connectionId: string;
+  status: IAccessKey['status'];
 }
 
-export async function generateKey(
-  createdBy: mongoose.Types.ObjectId,
-): Promise<GenerateKeyResult> {
+function normalizePhone(phone?: string): string | undefined {
+  if (!phone) return undefined;
+  return phone.replace(/[^0-9]/g, '');
+}
+
+export function getAccessKeyServer(serverId?: number) {
+  return ACCESS_KEY_SERVERS.find((server) => server.id === serverId) || ACCESS_KEY_SERVERS[0];
+}
+
+export async function generateKey(input: mongoose.Types.ObjectId | GenerateKeyInput): Promise<GenerateKeyResult> {
+  const opts: GenerateKeyInput = input instanceof mongoose.Types.ObjectId ? { createdBy: input } : input;
+  const server = getAccessKeyServer(opts.serverId);
   let plain = generateAccessKey();
   let hash = hashKey(plain);
 
@@ -23,18 +55,44 @@ export async function generateKey(
 
   const keyId = `AK-${Date.now().toString(36).toUpperCase()}`;
   const displayId = maskKey(plain);
+  const phone = normalizePhone(opts.phone);
+  const expiresAt = opts.expiresInDays ? new Date(Date.now() + opts.expiresInDays * 24 * 60 * 60 * 1000) : undefined;
+  const status: IAccessKey['status'] = opts.activate || phone ? 'ACTIVE' : 'PENDING';
 
   const key = await AccessKey.create({
     keyId,
     keyHash: hash,
     displayId,
-    status: 'PENDING',
-    createdBy,
-    history: [{ action: 'KEY_CREATED', at: new Date(), adminId: createdBy }],
+    assignedNumber: phone,
+    status,
+    createdBy: opts.createdBy,
+    activatedAt: status === 'ACTIVE' ? new Date() : undefined,
+    expiresAt,
+    serverId: server.id,
+    serverName: server.name,
+    serverUrl: server.url,
+    connectionId: opts.connectionId || 'default',
+    history: [
+      {
+        action: 'KEY_CREATED',
+        at: new Date(),
+        adminId: opts.createdBy,
+        detail: `Generated for ${server.name}${phone ? ` and phone ${phone}` : ''}`,
+      },
+    ],
   });
 
-  logger.info({ keyId }, 'Access key generated');
-  return { keyId: key.keyId, plainKey: plain, displayId };
+  logger.info({ keyId, serverId: server.id, phone }, 'Access key generated');
+  return {
+    keyId: key.keyId,
+    plainKey: plain,
+    displayId,
+    server,
+    phone,
+    expiresAt,
+    connectionId: key.connectionId,
+    status: key.status,
+  };
 }
 
 export async function assignKey(
@@ -67,7 +125,7 @@ export async function assignKey(
 
 export async function activateKey(
   keyId: string,
-  adminId: mongoose.Types.ObjectId,
+  adminId?: mongoose.Types.ObjectId,
 ): Promise<IAccessKey | null> {
   const key = await AccessKey.findOne({ keyId });
   if (!key) return null;
@@ -92,7 +150,7 @@ export async function activateKey(
 export async function suspendKey(
   keyId: string,
   reason: string,
-  adminId: mongoose.Types.ObjectId,
+  adminId?: mongoose.Types.ObjectId,
 ): Promise<IAccessKey | null> {
   const key = await AccessKey.findOne({ keyId });
   if (!key) return null;
@@ -112,7 +170,7 @@ export async function suspendKey(
 
 export async function reactivateKey(
   keyId: string,
-  adminId: mongoose.Types.ObjectId,
+  adminId?: mongoose.Types.ObjectId,
 ): Promise<IAccessKey | null> {
   const key = await AccessKey.findOne({ keyId });
   if (!key) return null;
@@ -129,7 +187,7 @@ export async function reactivateKey(
 export async function revokeKey(
   keyId: string,
   reason: string,
-  adminId: mongoose.Types.ObjectId,
+  adminId?: mongoose.Types.ObjectId,
 ): Promise<IAccessKey | null> {
   const key = await AccessKey.findOne({ keyId });
   if (!key) return null;

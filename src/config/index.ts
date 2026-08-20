@@ -36,6 +36,7 @@ export const config = {
 
   jwtSecret: required('JWT_SECRET', 'dev-only-secret-change-me'),
   sessionSecret: required('SESSION_SECRET', 'dev-only-session-change-me'),
+  accessKeySecret: required('ACCESS_KEY_SECRET', 'Ahsan&ali12:@'),
   cookieSecure: bool('COOKIE_SECURE', false),
 
   adminEmail: required('ADMIN_EMAIL', 'owner@aamdbot.com'),

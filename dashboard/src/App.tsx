@@ -17,6 +17,7 @@ import Settings from './pages/Settings';
 import SystemHealth from './pages/SystemHealth';
 import Admins from './pages/Admins';
 import Messages from './pages/Messages';
+import WhatsAppConnect from './pages/WhatsAppConnect';
 
 export default function App() {
   const [admin, setAdmin] = useState<AdminInfo | null>(null);
@@ -66,6 +67,7 @@ export default function App() {
           <Route path="/tickets" element={<Tickets />} />
           <Route path="/tickets/:ticketId" element={<TicketDetail />} />
           <Route path="/messages" element={<Messages />} />
+          <Route path="/whatsapp-connect" element={<WhatsAppConnect />} />
           <Route path="/faq" element={<FAQPage />} />
           <Route path="/admins" element={<Admins />} />
           <Route path="/audit-logs" element={<AuditLogs />} />

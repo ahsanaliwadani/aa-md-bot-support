@@ -238,6 +238,7 @@ export interface ChatMessage {
   direction: 'INCOMING' | 'OUTGOING';
   body: string;
   messageType: string;
+  mediaUrl?: string;
   at: string;
 }
 
@@ -246,7 +247,7 @@ export const messageApi = {
     api.get<{ items: ConversationSummary[] }>(`/api/messages?search=${search || ''}`),
   getConversation: (jid: string) =>
     api.get<{ messages: ChatMessage[]; user: Customer | null }>(`/api/messages/${encodeURIComponent(jid)}`),
-  send: (jid: string, text: string) => api.post('/api/messages/send', { jid, text }),
+  send: (jid: string, text: string, imageBase64?: string) => api.post('/api/messages/send', { jid, text, imageBase64 }),
   assignMe: (jid: string) => api.post(`/api/messages/${encodeURIComponent(jid)}/assign-me`),
   releaseBot: (jid: string) => api.post(`/api/messages/${encodeURIComponent(jid)}/release-bot`),
 };

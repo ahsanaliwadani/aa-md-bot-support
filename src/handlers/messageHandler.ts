@@ -1,4 +1,4 @@
-import { WASocket, WAMessage } from '@whiskeysockets/baileys';
+import { WASocket, WAMessage, downloadMediaMessage } from '@whiskeysockets/baileys';
 import { jidToPhone, countryFromPhone, isIndividualWhatsAppJid } from '../utils/phone';
 import { parseIntent, Intent } from './intentParser';
 import { conversationService, userService, accessKeyService, ticketService, paymentService, faqService, messageService, loadSettings } from '../services';
@@ -22,6 +22,7 @@ import {
   REQUEST_RECEIVED_TEXT,
 } from '../bot/responses';
 import { SystemEvent } from '../models';
+import { saveMessageImage, isAllowedImageMime } from '../utils/media';
 
 function getText(msg: WAMessage): string {
   if (!msg.message) return '';
@@ -40,6 +41,30 @@ function getText(msg: WAMessage): string {
   if (content.stickerMessage) return '[Sticker received]';
   if (content.audioMessage) return '[Voice message received]';
   return '';
+}
+
+async function extractIncomingImage(sock: WASocket, msg: WAMessage): Promise<{ mediaUrl?: string; messageType: string }> {
+  const imageMessage = msg.message?.imageMessage
+    || msg.message?.ephemeralMessage?.message?.imageMessage
+    || msg.message?.viewOnceMessage?.message?.imageMessage
+    || msg.message?.viewOnceMessageV2?.message?.imageMessage
+    || msg.message?.viewOnceMessageV2Extension?.message?.imageMessage;
+
+  if (!imageMessage) return { messageType: 'text' };
+
+  const mimetype = imageMessage.mimetype || 'image/jpeg';
+  if (!isAllowedImageMime(mimetype)) return { messageType: 'image' };
+
+  const buffer = await downloadMediaMessage(
+    msg,
+    'buffer',
+    {},
+    {
+      reuploadRequest: sock.updateMediaMessage,
+    } as never,
+  ) as Buffer;
+  const media = await saveMessageImage(buffer, mimetype);
+  return { mediaUrl: media.url, messageType: 'image' };
 }
 
 const COOLDOWN_MS = 3000;
@@ -70,15 +95,26 @@ export async function handleMessage(sock: WASocket, msg: WAMessage): Promise<voi
 
   const phone = jidToPhone(jid);
 
+  const media = await extractIncomingImage(sock, msg).catch((err) => {
+    logger.warn({ err, jid: phone.slice(-4) }, 'Could not store WhatsApp image');
+    return { messageType: text.startsWith('[Image') ? 'image' : 'text', mediaUrl: undefined as string | undefined };
+  });
+
   if (msg.key.fromMe) {
     await userService.findOrCreateUser(jid);
     await userService.updateUserContact(jid);
-    await messageService.logMessage({ jid, direction: 'OUTGOING', body: text });
+    await messageService.logMessage({ jid, direction: 'OUTGOING', body: text, messageType: media.messageType, mediaUrl: media.mediaUrl });
     logger.info({ jid: phone.slice(-4) }, 'Logged outbound WhatsApp message from connected account');
     return;
   }
 
-  await messageService.logMessage({ jid, direction: 'INCOMING', body: text });
+  await messageService.logMessage({
+    jid,
+    direction: 'INCOMING',
+    body: text,
+    messageType: media.messageType,
+    mediaUrl: media.mediaUrl,
+  });
 
   const spamWindow = messageWindows.get(jid);
   if (!spamWindow || now - spamWindow.startedAt > SPAM_WINDOW_MS) {
@@ -176,7 +212,8 @@ async function handleIdleMessage(sock: WASocket, jid: string, parsed: ReturnType
       await send(sock, jid, await getPricingText());
       break;
     case 'CONTACT':
-      await send(sock, jid, await getContactText());
+      await send(sock, jid, `${await askSupportAi(parsed.raw)}\n\nKya aap human support ticket banana chahte hain? Reply YES for ticket, or NO/menu if your issue is solved.`);
+      await conversationService.setState(jid, 'WAITING_FOR_CONTACT_CONFIRM', { originalMessage: parsed.raw });
       break;
     case 'TICKET_STATUS': {
       const user = await userService.findOrCreateUser(jid);
@@ -203,12 +240,12 @@ async function handleIdleMessage(sock: WASocket, jid: string, parsed: ReturnType
       if (faq) {
         await send(sock, jid, `❓ ${faq.question}\n\n${faq.answer}\n\nType "menu" for more options.`);
       } else {
-        await send(sock, jid, await getMenuText());
+        await send(sock, jid, await askSupportAi(parsed.raw));
       }
       break;
     }
     default: {
-      // Try FAQ match, then AI fallback, then create/update a dashboard ticket for human follow-up.
+      // Try FAQ match, then route existing support tickets, then use AI without opening unnecessary tickets.
       const faq = await faqService.findFAQMatch(parsed.raw);
       if (faq) {
         await send(sock, jid, `❓ ${faq.question}
@@ -219,32 +256,23 @@ Type "menu" for more options.`);
         return;
       }
 
-      const aiAnswer = await askSupportAi(parsed.raw);
-      if (aiAnswer) await send(sock, jid, aiAnswer);
-      else await send(sock, jid, `Thanks for your message. Our support team will review it.
-
-Type "menu" anytime to see all support options.`);
-
       const user = await userService.findOrCreateUser(jid);
-      const existing = await Ticket.findOne({
+      const openTicket = await Ticket.findOne({
         customerId: user._id,
         status: { $in: ['OPEN', 'IN_PROGRESS', 'WAITING_FOR_USER'] },
-        category: 'AI Support',
-      }).sort({ createdAt: -1 });
+      }).sort({ updatedAt: -1 });
+      if (openTicket) {
+        await ticketService.addReply(openTicket.ticketId, 'USER', parsed.raw.slice(0, 2000));
+        await send(sock, jid, `✅ Aap ka message ticket ${openTicket.ticketId} mein add ho gaya hai. Team jald response karegi.
 
-      if (existing) {
-        await ticketService.addReply(existing.ticketId, 'USER', parsed.raw.slice(0, 2000));
-      } else {
-        await ticketService.createTicket({
-          customerId: user._id,
-          jid,
-          phoneNumber: user.phoneNumber,
-          category: 'AI Support',
-          subject: 'Unmanaged WhatsApp Query',
-          description: parsed.raw.slice(0, 2000),
-          priority: 'NORMAL',
-        });
+Agar bot options chahiye hon to “menu” likhein.`);
+        return;
       }
+
+      const aiAnswer = await askSupportAi(parsed.raw);
+      await send(sock, jid, `${aiAnswer}
+
+Agar human team ki zaroorat ho to “contact” likhein. Type “menu” for support options.`);
     }
   }
 }
@@ -288,10 +316,59 @@ async function handleStatefulMessage(
     case 'WAITING_FOR_TICKET_REPLY':
       await handleTicketReply(sock, jid, rawText, data);
       break;
+    case 'WAITING_FOR_CONTACT_CONFIRM':
+      await handleContactConfirm(sock, jid, parsed, rawText, data);
+      break;
     default:
       await conversationService.resetState(jid);
       await send(sock, jid, await getMenuText());
   }
+}
+
+async function handleContactConfirm(
+  sock: WASocket,
+  jid: string,
+  parsed: ReturnType<typeof parseIntent>,
+  raw: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  if (parsed.intent === 'CONFIRM_NO' || parsed.intent === 'MENU') {
+    await conversationService.resetState(jid);
+    await send(sock, jid, 'Theek hai 😊 Agar dobara help chahiye ho to apna issue likhein ya “menu” send karein.');
+    return;
+  }
+
+  if (parsed.intent !== 'CONFIRM_YES') {
+    await send(sock, jid, `${await askSupportAi(raw)}\n\nAgar ab bhi human support chahiye ho to YES reply karein. Agar issue solve ho gaya ho to NO reply karein.`);
+    return;
+  }
+
+  const user = await userService.findOrCreateUser(jid);
+  const existing = await Ticket.findOne({
+    customerId: user._id,
+    status: { $in: ['OPEN', 'IN_PROGRESS', 'WAITING_FOR_USER'] },
+    category: 'Human Support',
+  }).sort({ createdAt: -1 });
+
+  if (existing) {
+    await ticketService.addReply(existing.ticketId, 'USER', (data.originalMessage as string || raw).slice(0, 2000));
+    await conversationService.resetState(jid);
+    await send(sock, jid, `✅ Aap ka support ticket already open hai: ${existing.ticketId}\n\nTeam aap ko jald response karegi.`);
+    return;
+  }
+
+  const ticket = await ticketService.createTicket({
+    customerId: user._id,
+    jid,
+    phoneNumber: user.phoneNumber,
+    category: 'Human Support',
+    subject: 'Customer requested human support',
+    description: (data.originalMessage as string || raw).slice(0, 2000),
+    priority: 'NORMAL',
+  });
+
+  await conversationService.resetState(jid);
+  await send(sock, jid, `✅ Aap ka help ticket create ho gaya hai.\n\n🎫 Ticket: ${ticket.ticketId}\n\nHamari team aap ko jald response karegi.`);
 }
 
 async function handleWaitingForNumber(sock: WASocket, jid: string, parsed: ReturnType<typeof parseIntent>, raw: string): Promise<void> {
@@ -337,7 +414,14 @@ async function handleWaitingForConfirmation(sock: WASocket, jid: string, parsed:
     });
 
     await conversationService.resetState(jid);
-    await send(sock, jid, REQUEST_RECEIVED_TEXT(number));
+    await send(sock, jid, `${REQUEST_RECEIVED_TEXT(number)}
+
+💳 Payment Details:
+Amount: ${pricing.label}
+Country: ${country}
+Payment Request: ${payment.paymentRequestId}
+
+Admin payment approval ke baad access key issue hogi.`);
 
     // Admin notification
     await notifyAdmins(sock, jid, `🚨 NEW ACCESS KEY REQUEST\n\nNumber: +${number}\nCountry: ${country}\nRequest ID: ${payment.paymentRequestId}\nStatus: PAYMENT PENDING\n\nOpen Dashboard: ${settings.botName} Dashboard`);

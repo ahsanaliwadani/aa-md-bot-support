@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isValidPhone, normalizePhone, countryFromPhone } from '../utils/phone';
+import { isValidPhone, normalizePhone, extractPhone } from '../utils/phone';
 import { isValidKeyFormat } from '../utils/crypto';
 import { ticketCategorySchema } from '../utils/validation';
 import { logger } from '../utils/logger';
@@ -76,6 +76,8 @@ export function parseIntent(raw: string): ParseResult {
   if (confirmYes.includes(lower)) return { intent: 'CONFIRM_YES', raw, cleaned: lower };
   if (confirmNo.includes(lower)) return { intent: 'CONFIRM_NO', raw, cleaned: lower };
 
+  const detectedPhone = extractPhone(text);
+  if (detectedPhone) return { intent: 'NUMBER', raw, cleaned: detectedPhone };
   if (isValidPhone(text)) return { intent: 'NUMBER', raw, cleaned: normalizePhone(text) };
 
   if (isValidKeyFormat(text)) return { intent: 'ACCESS_KEY', raw, cleaned: text.toUpperCase().trim() };

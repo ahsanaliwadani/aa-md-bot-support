@@ -60,6 +60,15 @@ export async function handleMessage(sock: WASocket, msg: WAMessage): Promise<voi
   lastMessage.set(jid, { at: now, text });
 
   const phone = jidToPhone(jid);
+
+  if (msg.key.fromMe) {
+    await userService.findOrCreateUser(jid);
+    await userService.updateUserContact(jid);
+    await messageService.logMessage({ jid, direction: 'OUTGOING', body: text });
+    logger.info({ jid: phone.slice(-4) }, 'Logged outbound WhatsApp message from connected account');
+    return;
+  }
+
   await messageService.logMessage({ jid, direction: 'INCOMING', body: text });
 
   const spamWindow = messageWindows.get(jid);

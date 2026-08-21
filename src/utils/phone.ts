@@ -1,7 +1,20 @@
 export function normalizePhone(raw: string): string {
   let p = raw.replace(/[^\d+]/g, '');
   if (p.startsWith('+')) p = p.slice(1);
+  if (p.startsWith('00')) p = p.slice(2);
+
+  // Most AA MD Bot buyers are from Pakistan. Accept common local formats like
+  // 03001234567 and convert them to the international WhatsApp format.
+  if (/^0\d{9,10}$/.test(p)) p = `92${p.slice(1)}`;
   return p;
+}
+
+export function extractPhone(raw: string): string | null {
+  const candidates = raw.match(/(?:\+|00)?\d[\d\s().-]{6,}\d/g) || [];
+  for (const candidate of candidates) {
+    if (isValidPhone(candidate)) return normalizePhone(candidate);
+  }
+  return null;
 }
 
 export function phoneToJid(phone: string): string {
@@ -59,5 +72,7 @@ export function countryFromPhone(phone: string): string {
 
 export function isValidPhone(raw: string): boolean {
   const p = normalizePhone(raw);
-  return /^\d{7,15}$/.test(p);
+  if (!/^\d{10,15}$/.test(p)) return false;
+  if (/^(\d)\1+$/.test(p)) return false;
+  return Boolean(countryFromPhone(p) !== 'Unknown' || p.length >= 11);
 }

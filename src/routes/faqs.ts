@@ -8,6 +8,7 @@ import { audit } from '../middleware/audit';
 const router = Router();
 
 router.get('/', authRequired, requirePermission('faq:read'), async (_req: Request, res: Response) => {
+  await faqService.seedDefaultFAQs();
   const faqs = await faqService.listFAQs();
   res.json({ items: faqs });
 });

@@ -42,10 +42,25 @@ export async function findFAQMatch(text: string): Promise<IFAQ | null> {
 }
 
 export async function seedDefaultFAQs(): Promise<void> {
-  const count = await FAQ.countDocuments();
-  if (count > 0) return;
-
   const defaults = [
+    {
+      question: 'How do I start the bot or ask for help?',
+      answer:
+        'Say salam/hello and describe your issue in your own words. The support assistant can guide you, or you can type menu to see quick support options.',
+      keywords: ['salam', 'hello', 'hi', 'help', 'or suna', 'guide'],
+    },
+    {
+      question: 'Which phone number format should I send?',
+      answer:
+        'Send your WhatsApp number with country code, for example +923001234567. Pakistan local format like 03001234567 is also accepted and converted automatically.',
+      keywords: ['number format', 'phone number', 'whatsapp number', '0300', '+92'],
+    },
+    {
+      question: 'How can I check ticket status?',
+      answer:
+        'Type status, ticket status, or send your ticket ID such as AA-1234-5678. The bot will show your latest ticket updates.',
+      keywords: ['ticket status', 'my ticket', 'status', 'ticket id'],
+    },
     {
       question: 'What is AA MD Bot?',
       answer:
@@ -102,5 +117,13 @@ export async function seedDefaultFAQs(): Promise<void> {
     },
   ];
 
-  await FAQ.insertMany(defaults.map((d) => ({ ...d, enabled: true, order: 0 })));
+  await Promise.all(
+    defaults.map((d, index) =>
+      FAQ.findOneAndUpdate(
+        { question: d.question },
+        { $setOnInsert: { ...d, enabled: true, order: index } },
+        { upsert: true, new: true },
+      ),
+    ),
+  );
 }

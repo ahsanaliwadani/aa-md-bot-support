@@ -10,8 +10,17 @@ export default function FAQPage() {
   const [editing, setEditing] = useState<FAQ | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ question: '', answer: '', keywords: '', enabled: true });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const load = () => faqApi.list().then((res) => setFaqs(res.items));
+  const load = () => {
+    setLoading(true);
+    setError('');
+    faqApi.list()
+      .then((res) => setFaqs(res.items))
+      .catch((err) => setError((err as Error).message))
+      .finally(() => setLoading(false));
+  };
   useEffect(() => { load(); }, []);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
@@ -83,7 +92,9 @@ export default function FAQPage() {
       )}
 
       <div className="space-y-3">
-        {faqs.map((faq) => (
+        {loading && <Card><div className="text-center text-slate-500 py-6">Loading FAQs...</div></Card>}
+        {error && <Card><div className="text-center text-error-500 py-6">{error}</div></Card>}
+        {!loading && !error && faqs.map((faq) => (
           <Card key={faq._id}>
             <div className="flex items-start justify-between">
               <div className="flex-1">
@@ -109,7 +120,7 @@ export default function FAQPage() {
             </div>
           </Card>
         ))}
-        {faqs.length === 0 && <Card><div className="text-center text-slate-500 py-6">No FAQs yet</div></Card>}
+        {!loading && !error && faqs.length === 0 && <Card><div className="text-center text-slate-500 py-6">No FAQs yet. Defaults will appear after refresh if you have FAQ permission.</div></Card>}
       </div>
 
       <ConfirmDialog

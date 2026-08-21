@@ -9,6 +9,7 @@ import { config } from './config';
 import { connectDB, isDBConnected } from './services/database';
 import { ensureOwnerAdmin } from './services/auth';
 import { seedDefaultSettings } from './services/settings';
+import { seedDefaultFAQs } from './services/faq';
 import { botManager } from './bot/BotManager';
 import { logger } from './utils/logger';
 import { apiLimiter } from './middleware/rateLimit';
@@ -28,6 +29,7 @@ async function bootstrap(): Promise<void> {
 
   // Seed
   await seedDefaultSettings();
+  await seedDefaultFAQs();
   await ensureOwnerAdmin();
 
   // Express
@@ -47,7 +49,7 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
   app.use(cookieParser(config.sessionSecret));
   app.use(sanitizeBody);
@@ -57,6 +59,8 @@ async function bootstrap(): Promise<void> {
 
   // API
   app.use('/api', apiLimiter, apiRoutes);
+
+  app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
 
   // Dashboard static files (production)
   const dashboardDist = path.resolve(process.cwd(), 'dashboard', 'dist');

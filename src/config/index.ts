@@ -47,7 +47,7 @@ export const config = {
   botName: required('BOT_NAME', 'AA MD BOT'),
 
   rateLimitWindowMs: num('RATE_LIMIT_WINDOW_MS', 60000),
-  rateLimitMax: num('RATE_LIMIT_MAX', 20),
+  rateLimitMax: num('RATE_LIMIT_MAX', 300),
 
   sessionTimeoutMin: num('SESSION_TIMEOUT_MINUTES', 10),
   backupKeep: num('BACKUP_KEEP', 7),

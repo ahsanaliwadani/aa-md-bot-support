@@ -206,6 +206,18 @@ export class BotManager {
     }
   }
 
+  async sendImage(jid: string, image: Buffer, caption?: string, mimetype?: string): Promise<void> {
+    if (!this.sock || !this.connected) {
+      throw new Error('WhatsApp bot is not connected');
+    }
+    try {
+      await this.sock.sendMessage(jid, { image, caption, mimetype });
+    } catch (err) {
+      logger.error({ err, jid }, 'Failed to send image');
+      throw err;
+    }
+  }
+
   async requestPairingCode(phone: string): Promise<string | null> {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     if (!this.sock) await this.start();

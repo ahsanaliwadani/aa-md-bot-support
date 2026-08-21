@@ -4,6 +4,7 @@ import { Message, User, Admin } from '../models';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { botManager } from '../bot/BotManager';
 import { isIndividualWhatsAppJid, phoneToJid } from '../utils/phone';
+import { parseImageDataUrl, saveMessageImage } from '../utils/media';
 import { messageService } from '../services';
 import { z } from 'zod';
 import { validateBody } from '../middleware/validate';
@@ -64,7 +65,8 @@ router.get('/:jid', authRequired, requirePermission('messages:read'), async (req
 // Send a message from dashboard through the bot
 const sendSchema = z.object({
   jid: z.string().min(5).max(100),
-  text: z.string().min(1).max(5000),
+  text: z.string().max(5000).optional().default(''),
+  imageBase64: z.string().max(8_000_000).optional(),
 });
 
 router.post(
@@ -79,7 +81,7 @@ router.post(
       return;
     }
 
-    let { jid, text } = req.body;
+    let { jid, text, imageBase64 } = req.body;
     jid = String(jid).trim();
     if (jid.endsWith('@c.us')) jid = phoneToJid(jid.split('@')[0]);
     if (!jid.includes('@')) jid = phoneToJid(jid);
@@ -90,8 +92,24 @@ router.post(
       return;
     }
 
-    await botManager.sendText(jid, text);
-    await messageService.logMessage({ jid, direction: 'OUTGOING', body: text });
+    if (!text.trim() && !imageBase64) {
+      res.status(400).json({ error: 'Text or image is required' });
+      return;
+    }
+
+    let mediaUrl: string | undefined;
+    let messageType = 'text';
+    if (imageBase64) {
+      const image = parseImageDataUrl(imageBase64);
+      const stored = await saveMessageImage(image.buffer, image.mimetype);
+      mediaUrl = stored.url;
+      messageType = 'image';
+      await botManager.sendImage(jid, image.buffer, text.trim() || undefined, image.mimetype);
+    } else {
+      await botManager.sendText(jid, text);
+    }
+
+    await messageService.logMessage({ jid, direction: 'OUTGOING', body: text || (imageBase64 ? '[Image sent]' : ''), messageType, mediaUrl });
 
     res.json({ success: true });
   },

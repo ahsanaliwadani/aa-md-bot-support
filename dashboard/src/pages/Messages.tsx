@@ -72,13 +72,13 @@ export default function Messages() {
       {toast && <Toast message={toast} onClose={() => setToast('')} />}
       <h1 className="text-2xl font-bold text-white">Messages</h1>
 
-      <div className="flex gap-4 h-[calc(100vh-180px)]">
+      <div className="flex flex-col lg:flex-row gap-4 lg:h-[calc(100vh-180px)]">
         {/* Conversation list */}
-        <div className="w-80 flex-shrink-0 flex flex-col">
+        <div className="w-full lg:w-80 flex-shrink-0 flex flex-col lg:max-h-full">
           <div className="mb-3">
             <SearchBar value={search} onChange={setSearch} placeholder="Search conversations..." />
           </div>
-          <Card className="flex-1 p-0 overflow-y-auto">
+          <Card className="max-h-80 lg:max-h-none flex-1 p-0 overflow-y-auto">
             {loading ? (
               <div className="text-center py-8 text-slate-500">Loading...</div>
             ) : conversations.length === 0 ? (
@@ -107,7 +107,7 @@ export default function Messages() {
         </div>
 
         {/* Chat panel */}
-        <div className="flex-1 flex flex-col">
+        <div className="min-h-[520px] lg:min-h-0 flex-1 flex flex-col">
           {selectedJid ? (
             <Card className="flex-1 flex flex-col p-0">
               <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">

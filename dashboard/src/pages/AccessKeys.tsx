@@ -21,7 +21,6 @@ export default function AccessKeys() {
   const [toast, setToast] = useState('');
   const [selectedServerId, setSelectedServerId] = useState(1);
   const [phone, setPhone] = useState('');
-  const [expiresInDays, setExpiresInDays] = useState(30);
   const [connectionId, setConnectionId] = useState('default');
   const [newKey, setNewKey] = useState<{ keyId: string; plainKey: string; server: AccessKeyServer; phone?: string; expiresAt?: string; connectionId: string } | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<AccessKey | null>(null);
@@ -33,6 +32,15 @@ export default function AccessKeys() {
   };
 
   useEffect(() => { load(); }, [page, search, status]);
+  useEffect(() => {
+    const stream = new EventSource('/api/dashboard/realtime', { withCredentials: true });
+    const refresh = () => load();
+    stream.addEventListener('access-key:new', refresh);
+    stream.addEventListener('access-key:updated', refresh);
+    stream.addEventListener('access-key:revoked', refresh);
+    stream.addEventListener('access-key:deleted', refresh);
+    return () => stream.close();
+  }, [page, search, status]);
   useEffect(() => { keyApi.servers().then((res) => setServers(res.items)).catch(() => setServers(FALLBACK_SERVERS)); }, []);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 4000); };
@@ -43,7 +51,6 @@ export default function AccessKeys() {
       const result = await keyApi.generate({
         serverId: selectedServerId,
         phone: phone.trim() || undefined,
-        expiresInDays,
         connectionId: connectionId.trim() || 'default',
       });
       setNewKey(result);
@@ -83,12 +90,11 @@ export default function AccessKeys() {
           <Server className="w-5 h-5 text-primary-400" />
           <h2 className="text-lg font-semibold text-white">Generate Access Key by Server</h2>
         </div>
-        <div className="grid md:grid-cols-4 gap-3">
+        <div className="grid md:grid-cols-3 gap-3">
           <select value={selectedServerId} onChange={(e) => setSelectedServerId(Number(e.target.value))} className="input">
             {servers.map((server) => <option key={server.id} value={server.id}>{server.name}</option>)}
           </select>
           <input value={phone} onChange={(e) => setPhone(e.target.value)} className="input" placeholder="Phone e.g. 923001234567" />
-          <input value={expiresInDays} onChange={(e) => setExpiresInDays(Number(e.target.value))} type="number" min="1" max="3650" className="input" placeholder="Expires in days" />
           <input value={connectionId} onChange={(e) => setConnectionId(e.target.value)} className="input" placeholder="Connection ID" />
         </div>
         <div className="mt-3 flex items-center justify-between flex-wrap gap-3">
@@ -121,7 +127,6 @@ export default function AccessKeys() {
           <option value="PENDING">Pending</option>
           <option value="ACTIVE">Active</option>
           <option value="SUSPENDED">Suspended</option>
-          <option value="REVOKED">Revoked</option>
           <option value="EXPIRED">Expired</option>
         </select>
       </div>

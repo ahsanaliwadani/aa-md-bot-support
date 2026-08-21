@@ -20,6 +20,7 @@ router.get('/', async (req: Request, res: Response, next) => {
         status: req.query.status as string,
         page: Number(req.query.page) || 1,
         limit: Math.min(Number(req.query.limit) || 100, 100),
+        includeRevoked: true,
       });
       return res.json({ ok: true, keys: result.items });
     } catch (err) {
@@ -33,13 +34,13 @@ router.get('/', async (req: Request, res: Response, next) => {
     status: req.query.status as string,
     page: Number(req.query.page),
     limit: Number(req.query.limit),
+    includeRevoked: false,
   });
   res.json(result);
 });
 
 const generateSchema = z.object({
   phone: z.string().min(7).max(20).optional(),
-  expiresInDays: z.number().int().min(1).max(3650).optional(),
   connectionId: z.string().min(1).max(80).default('default'),
   serverId: z.number().int().min(1).max(4).default(1),
 });
@@ -58,6 +59,10 @@ function requestHasAccessKeySecret(req: Request): boolean {
 
 function requestHasEndpointSecret(req: Request): boolean {
   return hasHeaderSecret(req, config.accessKeyEndpointSecret);
+}
+
+function requestHasIntegrationSecret(req: Request): boolean {
+  return requestHasEndpointSecret(req) || requestHasAccessKeySecret(req);
 }
 
 function requireSecureAccessKeyEndpoint(req: Request, res: Response): boolean {
@@ -96,7 +101,10 @@ router.get('/history', async (req: Request, res: Response) => {
 });
 
 router.post('/action', async (req: Request, res: Response) => {
-  if (!requireSecureAccessKeyEndpoint(req, res)) return;
+  if (!requestHasIntegrationSecret(req)) {
+    res.status(401).json({ ok: false, error: 'Unauthorized' });
+    return;
+  }
   try {
     const action = String(req.body.action || '').toLowerCase();
     const id = req.body.id || req.body.keyId;
@@ -107,7 +115,6 @@ router.post('/action', async (req: Request, res: Response) => {
     if (action === 'generate') {
       const result = await accessKeyService.generateKey({
         phone,
-        expiresInDays: req.body.expiresInDays,
         connectionId: req.body.connectionId || 'default',
         serverId: req.body.serverId,
         activate: Boolean(phone),
@@ -116,11 +123,16 @@ router.post('/action', async (req: Request, res: Response) => {
     }
 
     if (action === 'search') {
-      const result = await accessKeyService.searchKeys({ search: search || phone || id || '', page: 1, limit: 100 });
+      const result = await accessKeyService.searchKeys({ search: search || phone || id || '', page: 1, limit: 100, includeRevoked: true });
       return res.json({ ok: true, keys: result.items });
     }
 
     if (!id) throw new Error('Access key id is required');
+    if (action === 'delete') {
+      const key = await accessKeyService.deleteKey(String(id));
+      if (!key) throw new Error('Access key not found');
+      return res.json({ ok: true, deleted: true, id: key._id.toString(), keyId: key.keyId });
+    }
     if (action === 'view') return res.json({ ok: true, record: await serializeAccessKey(id) });
     if (action === 'history') {
       const key = await AccessKey.findOne({ keyId: id }).select('keyId history');
@@ -139,7 +151,7 @@ router.post('/action', async (req: Request, res: Response) => {
     if (action === 'suspend' || action === 'disable') return res.json({ ok: true, record: await accessKeyService.suspendKey(id, `Suspended through ${createdBy}`) });
     if (action === 'revoke') return res.json({ ok: true, record: await accessKeyService.revokeKey(id, `Revoked through ${createdBy}`) });
 
-    throw new Error('Unsupported action. Use generate, search, view, assign, activate, suspend, revoke, or history.');
+    throw new Error('Unsupported action. Use generate, search, view, assign, activate, suspend, revoke, delete, or history.');
   } catch (err) {
     res.status(400).json({ ok: false, error: (err as Error).message });
   }
@@ -156,7 +168,6 @@ router.post(
     if (requestHasAccessKeySecret(req)) {
       const result = await accessKeyService.generateKey({
         phone: req.body.phone,
-        expiresInDays: req.body.expiresInDays,
         connectionId: req.body.connectionId,
         serverId: req.body.serverId,
         activate: true,
@@ -185,7 +196,6 @@ router.post(
     const result = await accessKeyService.generateKey({
       createdBy: admin._id,
       phone: req.body.phone,
-      expiresInDays: req.body.expiresInDays,
       connectionId: req.body.connectionId,
       serverId: req.body.serverId,
       activate: Boolean(req.body.phone),

@@ -2,6 +2,7 @@ import { AccessKey, IAccessKey, User } from '../models';
 import { generateAccessKey, hashKey, maskKey, isValidKeyFormat } from '../utils/crypto';
 import { logger } from '../utils/logger';
 import mongoose from 'mongoose';
+import { emitRealtime } from './realtime';
 
 export const ACCESS_KEY_SERVERS = [
   { id: 1, name: 'Server 1', url: 'https://193.122.82.38.nip.io' },
@@ -15,13 +16,13 @@ export type AccessKeyServerId = (typeof ACCESS_KEY_SERVERS)[number]['id'];
 export interface GenerateKeyInput {
   createdBy?: mongoose.Types.ObjectId;
   phone?: string;
-  expiresInDays?: number;
   connectionId?: string;
   serverId?: AccessKeyServerId;
   activate?: boolean;
 }
 
 export interface GenerateKeyResult {
+  id: string;
   keyId: string;
   plainKey: string;
   displayId: string;
@@ -53,10 +54,12 @@ export async function generateKey(input: mongoose.Types.ObjectId | GenerateKeyIn
     hash = hashKey(plain);
   }
 
-  const keyId = `AK-${Date.now().toString(36).toUpperCase()}`;
+  // Date.now alone collides when two dashboard/API requests arrive in the same millisecond.
+  const keyId = `AK-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
   const displayId = maskKey(plain);
   const phone = normalizePhone(opts.phone);
-  const expiresAt = opts.expiresInDays ? new Date(Date.now() + opts.expiresInDays * 24 * 60 * 60 * 1000) : undefined;
+  // Access keys are lifetime keys. Expiry is retained on the model only for legacy records.
+  const expiresAt = undefined;
   const status: IAccessKey['status'] = opts.activate || phone ? 'ACTIVE' : 'PENDING';
 
   const key = await AccessKey.create({
@@ -83,7 +86,9 @@ export async function generateKey(input: mongoose.Types.ObjectId | GenerateKeyIn
   });
 
   logger.info({ keyId, serverId: server.id, phone }, 'Access key generated');
+  emitRealtime('access-key:new', key.toObject());
   return {
+    id: key._id.toString(),
     keyId: key.keyId,
     plainKey: plain,
     displayId,
@@ -120,6 +125,8 @@ export async function assignKey(
     accessKeyStatus: 'PENDING',
   });
 
+  emitRealtime('access-key:updated', key.toObject());
+
   return key;
 }
 
@@ -144,6 +151,8 @@ export async function activateKey(
     await User.findByIdAndUpdate(key.customerId, { accessKeyStatus: 'ACTIVE' });
   }
 
+  emitRealtime('access-key:updated', key.toObject());
+
   return key;
 }
 
@@ -165,6 +174,7 @@ export async function suspendKey(
   if (key.customerId) {
     await User.findByIdAndUpdate(key.customerId, { accessKeyStatus: 'SUSPENDED' });
   }
+  emitRealtime('access-key:updated', key.toObject());
   return key;
 }
 
@@ -181,6 +191,7 @@ export async function reactivateKey(
   if (key.customerId) {
     await User.findByIdAndUpdate(key.customerId, { accessKeyStatus: 'ACTIVE' });
   }
+  emitRealtime('access-key:updated', key.toObject());
   return key;
 }
 
@@ -204,6 +215,29 @@ export async function revokeKey(
   if (key.customerId) {
     await User.findByIdAndUpdate(key.customerId, { accessKeyStatus: 'REVOKED' });
   }
+  emitRealtime('access-key:revoked', { keyId: key.keyId });
+  return key;
+}
+
+/** Permanently delete a key requested through the secured integration API. */
+export async function deleteKey(id: string): Promise<IAccessKey | null> {
+  const key = await AccessKey.findOne({
+    $or: [
+      { keyId: id },
+      ...(mongoose.isObjectIdOrHexString(id) ? [{ _id: id }] : []),
+    ],
+  });
+  if (!key) return null;
+
+  await AccessKey.deleteOne({ _id: key._id });
+  if (key.customerId) {
+    await User.findByIdAndUpdate(key.customerId, {
+      $unset: { accessKeyId: 1 },
+      accessKeyStatus: 'NONE',
+    });
+  }
+  emitRealtime('access-key:deleted', { keyId: key.keyId, id: key._id.toString() });
+  logger.info({ keyId: key.keyId }, 'Access key deleted');
   return key;
 }
 
@@ -244,9 +278,11 @@ export async function searchKeys(opts: {
   status?: string;
   page: number;
   limit: number;
+  includeRevoked?: boolean;
 }) {
   const query: Record<string, unknown> = {};
   if (opts.status) query.status = opts.status;
+  else if (!opts.includeRevoked) query.status = { $ne: 'REVOKED' };
   if (opts.search) {
     query.$or = [
       { keyId: { $regex: opts.search, $options: 'i' } },

@@ -8,9 +8,17 @@ export default function Overview() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    dashboardApi.getStats().then(setStats).finally(() => setLoading(false));
-    const interval = setInterval(() => dashboardApi.getStats().then(setStats), 30000);
-    return () => clearInterval(interval);
+    const refresh = () => dashboardApi.getStats().then(setStats).finally(() => setLoading(false));
+    refresh();
+    const interval = setInterval(refresh, 30000);
+    const stream = new EventSource('/api/dashboard/realtime', { withCredentials: true });
+    ['whatsapp:status', 'message:new', 'access-key:new', 'access-key:updated', 'access-key:revoked', 'ticket:new'].forEach((event) => {
+      stream.addEventListener(event, refresh);
+    });
+    return () => {
+      clearInterval(interval);
+      stream.close();
+    };
   }, []);
 
   if (loading || !stats) return <div className="text-slate-400 animate-pulse">Loading dashboard...</div>;

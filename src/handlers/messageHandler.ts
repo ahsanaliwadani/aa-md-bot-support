@@ -1,5 +1,5 @@
 import { WASocket, WAMessage } from '@whiskeysockets/baileys';
-import { jidToPhone, countryFromPhone } from '../utils/phone';
+import { jidToPhone, countryFromPhone, isIndividualWhatsAppJid } from '../utils/phone';
 import { parseIntent, Intent } from './intentParser';
 import { conversationService, userService, accessKeyService, ticketService, paymentService, faqService, messageService, loadSettings } from '../services';
 import { askSupportAi } from '../services/ai';
@@ -25,13 +25,20 @@ import { SystemEvent } from '../models';
 
 function getText(msg: WAMessage): string {
   if (!msg.message) return '';
-  if (msg.message.conversation) return msg.message.conversation;
-  if (msg.message.extendedTextMessage?.text) return msg.message.extendedTextMessage.text;
-  if (msg.message.imageMessage?.caption) return msg.message.imageMessage.caption;
-  if (msg.message.videoMessage?.caption) return msg.message.videoMessage.caption;
-  if (msg.message.imageMessage) return '[Image/screenshot received]';
-  if (msg.message.videoMessage) return '[Video received]';
-  if (msg.message.documentMessage) return '[Document received]';
+  const content = msg.message.ephemeralMessage?.message
+    || msg.message.viewOnceMessage?.message
+    || msg.message.viewOnceMessageV2?.message
+    || msg.message.viewOnceMessageV2Extension?.message
+    || msg.message;
+  if (content.conversation) return content.conversation;
+  if (content.extendedTextMessage?.text) return content.extendedTextMessage.text;
+  if (content.imageMessage?.caption) return content.imageMessage.caption;
+  if (content.videoMessage?.caption) return content.videoMessage.caption;
+  if (content.imageMessage) return '[Image/screenshot received]';
+  if (content.videoMessage) return '[Video received]';
+  if (content.documentMessage) return '[Document received]';
+  if (content.stickerMessage) return '[Sticker received]';
+  if (content.audioMessage) return '[Voice message received]';
   return '';
 }
 
@@ -48,7 +55,9 @@ async function send(sock: WASocket, jid: string, text: string): Promise<void> {
 
 export async function handleMessage(sock: WASocket, msg: WAMessage): Promise<void> {
   const jid = msg.key.remoteJid || '';
-  if (!jid.endsWith('@s.whatsapp.net')) return;
+  // WhatsApp can identify private chats by a phone JID or an @lid address.
+  // Dropping @lid messages makes a connected bot appear online but never reply.
+  if (!isIndividualWhatsAppJid(jid)) return;
 
   const text = getText(msg);
   if (!text) return;

@@ -162,8 +162,8 @@ export const keyApi = {
   list: (params: { page?: number; limit?: number; search?: string; status?: string }) =>
     api.get<Paginated<AccessKey>>(`/api/access-keys?page=${params.page || 1}&limit=${params.limit || 20}&search=${params.search || ''}&status=${params.status || ''}`),
   servers: () => api.get<{ items: AccessKeyServer[] }>('/api/access-keys/servers'),
-  generate: (data?: { serverId?: number; phone?: string; expiresInDays?: number; connectionId?: string }) =>
-    api.post<{ keyId: string; plainKey: string; displayId: string; server: AccessKeyServer; phone?: string; expiresAt?: string; connectionId: string; status: string }>('/api/access-keys/generate', data),
+  generate: (data?: { serverId?: number; phone?: string; connectionId?: string }) =>
+    api.post<{ id: string; keyId: string; plainKey: string; displayId: string; server: AccessKeyServer; phone?: string; expiresAt?: string; connectionId: string; status: string }>('/api/access-keys/generate', data),
   activate: (keyId: string) => api.post('/api/access-keys/activate', { keyId }),
   suspend: (keyId: string, reason: string) => api.post('/api/access-keys/suspend', { keyId, reason }),
   reactivate: (keyId: string) => api.post('/api/access-keys/reactivate', { keyId }),

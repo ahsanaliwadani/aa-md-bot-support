@@ -212,13 +212,13 @@ cat > "$APP_DIR/access-key-api-examples.txt" <<EXAMPLES
 curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" \
   -H "Content-Type: application/json" \
   -H "X-Access-Key-Secret: ${ACCESS_KEY_SECRET_VALUE}" \
-  -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
+  -d '{"phone":"923001234567","connectionId":"default"}'
 
 # Bearer secret method
 curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${ACCESS_KEY_SECRET_VALUE}" \
-  -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
+  -d '{"phone":"923001234567","connectionId":"default"}'
 EXAMPLES
 chmod 600 "$APP_DIR/admin-credentials.txt" "$APP_DIR/access-key-api-examples.txt"
 
@@ -333,9 +333,9 @@ Credentials file: sudo cat ${APP_DIR}/admin-credentials.txt
 Access key examples: sudo cat ${APP_DIR}/access-key-api-examples.txt
 Access key API secret: ${ACCESS_KEY_SECRET_VALUE}
 Generate key with X-Access-Key-Secret:
-curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" -H "Content-Type: application/json" -H "X-Access-Key-Secret: ${ACCESS_KEY_SECRET_VALUE}" -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
+curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" -H "Content-Type: application/json" -H "X-Access-Key-Secret: ${ACCESS_KEY_SECRET_VALUE}" -d '{"phone":"923001234567","connectionId":"default"}'
 Generate key with Authorization Bearer:
-curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" -H "Content-Type: application/json" -H "Authorization: Bearer ${ACCESS_KEY_SECRET_VALUE}" -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
+curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" -H "Content-Type: application/json" -H "Authorization: Bearer ${ACCESS_KEY_SECRET_VALUE}" -d '{"phone":"923001234567","connectionId":"default"}'
 Optional HTTPS domain deploy: sudo DOMAIN_NAME=support.yourdomain.com ./deploy.sh
 WhatsApp connect: open dashboard → WhatsApp Connect → pairing code / QR.
 SUMMARY

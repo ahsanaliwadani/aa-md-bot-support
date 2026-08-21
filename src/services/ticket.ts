@@ -70,11 +70,15 @@ export async function updateStatus(
   ticket.status = status;
   if (status === 'RESOLVED') ticket.resolvedAt = new Date();
   if (status === 'CLOSED') ticket.closedAt = new Date();
+  if (status !== 'RESOLVED') ticket.resolvedAt = undefined;
+  if (status !== 'CLOSED') ticket.closedAt = undefined;
   await ticket.save();
   emitRealtime('ticket:updated', ticket);
 
   if (status === 'RESOLVED' || status === 'CLOSED') {
     await User.findByIdAndUpdate(ticket.customerId, { supportStatus: 'RESOLVED' });
+  } else {
+    await User.findByIdAndUpdate(ticket.customerId, { supportStatus: status === 'OPEN' ? 'OPEN' : 'IN_PROGRESS' });
   }
   return ticket;
 }

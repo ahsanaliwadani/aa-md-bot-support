@@ -128,4 +128,24 @@ router.post(
   },
 );
 
+router.delete(
+  '/:id',
+  authRequired,
+  requirePermission('customers:write'),
+  audit('CUSTOMER_DELETED', 'customer'),
+  async (req: Request, res: Response) => {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) {
+      res.status(404).json({ error: 'Customer not found' });
+      return;
+    }
+    await Promise.all([
+      Ticket.deleteMany({ customerId: user._id }),
+      Payment.deleteMany({ customerId: user._id }),
+      Message.deleteMany({ jid: user.jid }),
+    ]);
+    res.json({ success: true });
+  },
+);
+
 export default router;

@@ -23,6 +23,8 @@ export interface Customer {
   paymentStatus: string;
   supportStatus: string;
   blocked: boolean;
+  botPaused: boolean;
+  botPausedBy?: { name: string; email: string };
   blockedReason?: string;
   tags: string[];
   notes: string;
@@ -154,6 +156,7 @@ export const customerApi = {
   removeTag: (id: string, tag: string) => api.delete(`/api/customers/${id}/tags/${tag}`),
   block: (id: string, reason: string) => api.post(`/api/customers/${id}/block`, { reason }),
   unblock: (id: string) => api.post(`/api/customers/${id}/unblock`),
+  delete: (id: string) => api.delete(`/api/customers/${id}`),
 };
 
 export interface AccessKeyServer { id: number; name: string; url: string; }
@@ -170,6 +173,8 @@ export const keyApi = {
   revoke: (keyId: string, reason: string) => api.post('/api/access-keys/revoke', { keyId, reason }),
   assign: (keyId: string, number: string, customerId: string) =>
     api.post('/api/access-keys/assign', { keyId, number, customerId }),
+  assignPhone: (keyId: string, phone: string) => api.post('/api/access-keys/assign-phone', { keyId, phone }),
+  delete: (keyId: string) => api.delete(`/api/access-keys/${encodeURIComponent(keyId)}`),
 };
 
 export const paymentApi = {
@@ -187,6 +192,8 @@ export const ticketApi = {
   updateStatus: (ticketId: string, status: string) => api.post(`/api/tickets/${ticketId}/status`, { status }),
   updatePriority: (ticketId: string, priority: string) => api.put(`/api/tickets/${ticketId}/priority`, { priority }),
   assign: (ticketId: string, adminId: string) => api.post(`/api/tickets/${ticketId}/assign`, { adminId }),
+  assignMe: (ticketId: string) => api.post(`/api/tickets/${ticketId}/assign-me`),
+  delete: (ticketId: string) => api.delete(`/api/tickets/${ticketId}`),
 };
 
 export const faqApi = {
@@ -240,4 +247,6 @@ export const messageApi = {
   getConversation: (jid: string) =>
     api.get<{ messages: ChatMessage[]; user: Customer | null }>(`/api/messages/${encodeURIComponent(jid)}`),
   send: (jid: string, text: string) => api.post('/api/messages/send', { jid, text }),
+  assignMe: (jid: string) => api.post(`/api/messages/${encodeURIComponent(jid)}/assign-me`),
+  releaseBot: (jid: string) => api.post(`/api/messages/${encodeURIComponent(jid)}/release-bot`),
 };

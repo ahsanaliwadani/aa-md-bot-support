@@ -31,7 +31,7 @@ export interface ParseResult {
   cleaned: string;
 }
 
-const MENU_TRIGGERS = ['hi', 'hello', 'menu', 'help', 'start', 'hey', '0', '00'];
+const MENU_TRIGGERS = ['menu', 'help', 'start', '0', '00'];
 const BUY_TRIGGERS = ['1', 'buy', 'purchase', 'access key', 'key'];
 const ACTIVATE_TRIGGERS = ['2', 'activate', 'activation'];
 const KEY_ISSUE_TRIGGERS = ['3', 'issue', 'key issue', 'access key issue'];
@@ -51,6 +51,9 @@ export function parseIntent(raw: string): ParseResult {
   if (!lower) return { intent: 'UNKNOWN', raw, cleaned: lower };
 
   if (MENU_TRIGGERS.includes(lower)) return { intent: 'MENU', raw, cleaned: lower };
+  if (['hi', 'hello', 'hey', 'salam', 'assalamualaikum', 'assalamu alaikum'].includes(lower)) {
+    return { intent: 'FAQ_MATCH', raw, cleaned: lower };
+  }
 
   if (BUY_TRIGGERS.includes(lower)) return { intent: 'BUY', raw, cleaned: lower };
   if (ACTIVATE_TRIGGERS.includes(lower)) return { intent: 'ACTIVATE', raw, cleaned: lower };
@@ -64,7 +67,7 @@ export function parseIntent(raw: string): ParseResult {
   if (PRICING_TRIGGERS.includes(lower)) return { intent: 'PRICING', raw, cleaned: lower };
   if (CONTACT_TRIGGERS.includes(lower)) return { intent: 'CONTACT', raw, cleaned: lower };
 
-  if (lower === 'ticket' || lower === 'my ticket' || lower === 'ticket status' || lower === 'status') {
+  if (lower === 'ticket' || lower === 'my ticket' || lower === 'ticket status' || lower === 'status' || /aa-\d{4}-\d{4}/i.test(text)) {
     return { intent: 'TICKET_STATUS', raw, cleaned: lower };
   }
 

@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { messageApi, ConversationSummary, ChatMessage, Customer } from '../lib/types';
 import { Card, Toast, SearchBar } from '../components/ui';
-import { Send, MessageSquare } from 'lucide-react';
+import { Bot, Send, MessageSquare, UserCheck } from 'lucide-react';
 
 export default function Messages() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -67,6 +67,29 @@ export default function Messages() {
     }
   };
 
+  const reloadSelected = () => {
+    if (!selectedJid) return;
+    messageApi.getConversation(selectedJid).then((res) => {
+      setMessages(res.messages);
+      setUser(res.user);
+    });
+    loadConversations();
+  };
+
+  const handleAssignMe = async () => {
+    if (!selectedJid) return;
+    await messageApi.assignMe(selectedJid);
+    showToast('Chat assigned to you. Bot replies are paused.');
+    reloadSelected();
+  };
+
+  const handleReleaseBot = async () => {
+    if (!selectedJid) return;
+    await messageApi.releaseBot(selectedJid);
+    showToast('Chat released back to bot automation.');
+    reloadSelected();
+  };
+
   return (
     <div className="space-y-4">
       {toast && <Toast message={toast} onClose={() => setToast('')} />}
@@ -110,21 +133,29 @@ export default function Messages() {
         <div className="min-h-[520px] lg:min-h-0 flex-1 flex flex-col">
           {selectedJid ? (
             <Card className="flex-1 flex flex-col p-0">
-              <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-primary-400" />
-                <div>
+              <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-primary-400" />
+                  <div>
                   <span className="text-white font-medium">+{selectedJid.split('@')[0]}</span>
                   {user && <span className="text-slate-500 text-sm ml-2">{user.country}</span>}
+                  {user?.botPaused && <span className="badge bg-warning-500/20 text-warning-500 text-xs ml-2">Human assigned</span>}
+                  </div>
                 </div>
+                {user?.botPaused ? (
+                  <button onClick={handleReleaseBot} className="btn-secondary text-xs flex items-center gap-1"><Bot className="w-4 h-4" /> Assign Bot</button>
+                ) : (
+                  <button onClick={handleAssignMe} className="btn-secondary text-xs flex items-center gap-1"><UserCheck className="w-4 h-4" /> Assign Me</button>
+                )}
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div className="h-[420px] lg:h-auto lg:flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
                 {messages.length === 0 ? (
                   <div className="text-center py-8 text-slate-500">No messages</div>
                 ) : (
                   messages.map((msg) => (
                     <div key={msg._id} className={`flex ${msg.direction === 'OUTGOING' ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[70%] px-3 py-2 rounded-lg text-sm ${msg.direction === 'OUTGOING' ? 'bg-primary-600 text-white' : 'bg-surface-900 text-slate-300'}`}>
-                        <div>{msg.body}</div>
+                        <div className="whitespace-pre-wrap break-words">{msg.body}</div>
                         <div className={`text-xs mt-1 ${msg.direction === 'OUTGOING' ? 'text-white/60' : 'text-slate-500'}`}>
                           {new Date(msg.at).toLocaleString()}
                         </div>

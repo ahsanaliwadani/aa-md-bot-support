@@ -210,6 +210,11 @@ const assignSchema = z.object({
   customerId: z.string().regex(/^[0-9a-fA-F]{24}$/),
 });
 
+const assignPhoneSchema = z.object({
+  keyId: z.string(),
+  phone: z.string().min(7).max(20),
+});
+
 router.post(
   '/assign',
   authRequired,
@@ -228,6 +233,27 @@ router.post(
       req.body.customerId,
       admin._id,
     );
+    if (!key) {
+      res.status(400).json({ error: 'Key not found or not in PENDING status' });
+      return;
+    }
+    res.json({ key });
+  },
+);
+
+router.post(
+  '/assign-phone',
+  authRequired,
+  requirePermission('keys:assign'),
+  audit('KEY_ASSIGNED_TO_PHONE', 'access_key'),
+  validateBody(assignPhoneSchema),
+  async (req: Request, res: Response) => {
+    const admin = await Admin.findById(req.admin!.id);
+    if (!admin) {
+      res.status(404).json({ error: 'Admin not found' });
+      return;
+    }
+    const key = await accessKeyService.assignKeyToPhone(req.body.keyId, req.body.phone, admin._id);
     if (!key) {
       res.status(400).json({ error: 'Key not found or not in PENDING status' });
       return;
@@ -330,6 +356,21 @@ router.post(
       return;
     }
     res.json({ key });
+  },
+);
+
+router.delete(
+  '/:keyId',
+  authRequired,
+  requirePermission('keys:revoke'),
+  audit('KEY_DELETED', 'access_key'),
+  async (req: Request, res: Response) => {
+    const key = await accessKeyService.deleteKey(req.params.keyId);
+    if (!key) {
+      res.status(404).json({ error: 'Access key not found' });
+      return;
+    }
+    res.json({ success: true });
   },
 );
 

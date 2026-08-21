@@ -4,7 +4,7 @@ import { parseIntent, Intent } from './intentParser';
 import { conversationService, userService, accessKeyService, ticketService, paymentService, faqService, messageService, loadSettings } from '../services';
 import { askSupportAi } from '../services/ai';
 import { ConversationStateName } from '../models';
-import { Payment, Ticket } from '../models';
+import { AccessKey, Payment, Ticket } from '../models';
 import { logger } from '../utils/logger';
 import {
   getMenuText,
@@ -96,6 +96,16 @@ export async function handleMessage(sock: WASocket, msg: WAMessage): Promise<voi
 
   await userService.updateUserContact(jid);
 
+  if (user.botPaused) {
+    const openTicket = await Ticket.findOne({
+      customerId: user._id,
+      status: { $in: ['OPEN', 'IN_PROGRESS', 'WAITING_FOR_USER'] },
+    }).sort({ updatedAt: -1 });
+    if (openTicket) await ticketService.addReply(openTicket.ticketId, 'USER', text.slice(0, 2000));
+    logger.info({ jid: phone.slice(-4) }, 'Bot reply skipped because chat is assigned to a human');
+    return;
+  }
+
   // Check for stale state
   const stale = await conversationService.isStateStale(jid);
   if (stale) await conversationService.resetState(jid);
@@ -154,7 +164,12 @@ async function handleIdleMessage(sock: WASocket, jid: string, parsed: ReturnType
       break;
     case 'KEY_INFO': {
       const s = await loadSettings();
-      await send(sock, jid, `ℹ️ ${s.botName} Access Key Information\n\n• 1 Access Key = 1 WhatsApp Number\n• One-time payment — no subscription\n• Pakistan: ${s.pricing.pakistan.label}\n• International: ${s.pricing.international.label}\n\nSelect 1️⃣ to buy or 2️⃣ to activate.`);
+      const user = await userService.findOrCreateUser(jid);
+      const key = await AccessKey.findOne({ customerId: user._id }).sort({ updatedAt: -1 });
+      const keyLine = key
+        ? `\n\nYour key: ${key.displayId}\nStatus: ${key.status}\nServer: ${key.serverName || 'Server 1'}\nConnection: ${key.connectionId || 'default'}`
+        : '';
+      await send(sock, jid, `ℹ️ ${s.botName} Access Key Information\n\n• 1 Access Key = 1 WhatsApp Number\n• One-time payment — no subscription\n• Pakistan: ${s.pricing.pakistan.label}\n• International: ${s.pricing.international.label}${keyLine}\n\nSelect 1️⃣ to buy or 2️⃣ to activate.`);
       break;
     }
     case 'PRICING':
@@ -165,13 +180,18 @@ async function handleIdleMessage(sock: WASocket, jid: string, parsed: ReturnType
       break;
     case 'TICKET_STATUS': {
       const user = await userService.findOrCreateUser(jid);
-      const tickets = await Ticket.find({ customerId: user._id }).sort({ createdAt: -1 }).limit(3);
+      const requestedTicketId = parsed.raw.match(/AA-\d{4}-\d{4}/i)?.[0]?.toUpperCase();
+      const tickets = requestedTicketId
+        ? await Ticket.find({ customerId: user._id, ticketId: requestedTicketId }).limit(1)
+        : await Ticket.find({ customerId: user._id }).sort({ createdAt: -1 }).limit(3);
       if (tickets.length === 0) {
-        await send(sock, jid, '🎫 You have no support tickets.\n\nType "menu" to return to the main menu.');
+        await send(sock, jid, requestedTicketId
+          ? `🎫 I could not find ticket ${requestedTicketId} on your WhatsApp number.`
+          : '🎫 You have no support tickets.\n\nType "menu" to return to the main menu.');
       } else {
-        let resp = '🎫 Your recent tickets:\n\n';
+        let resp = requestedTicketId ? '🎫 Ticket details:\n\n' : '🎫 Your recent tickets:\n\n';
         for (const t of tickets) {
-          resp += `Ticket: ${t.ticketId}\nStatus: ${t.status}\nPriority: ${t.priority}\n\n`;
+          resp += `Ticket: ${t.ticketId}\nSubject: ${t.subject}\nStatus: ${t.status}\nPriority: ${t.priority}\nUpdated: ${t.updatedAt.toLocaleString()}\n\n`;
         }
         resp += 'Type "menu" to return to the main menu.';
         await send(sock, jid, resp);
@@ -200,12 +220,10 @@ Type "menu" for more options.`);
       }
 
       const aiAnswer = await askSupportAi(parsed.raw);
-      if (aiAnswer) await send(sock, jid, `${aiAnswer}
-
-${await getMenuText()}`);
+      if (aiAnswer) await send(sock, jid, aiAnswer);
       else await send(sock, jid, `Thanks for your message. Our support team will review it.
 
-${await getMenuText()}`);
+Type "menu" anytime to see all support options.`);
 
       const user = await userService.findOrCreateUser(jid);
       const existing = await Ticket.findOne({

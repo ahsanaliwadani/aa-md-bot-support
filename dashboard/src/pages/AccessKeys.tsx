@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { keyApi, AccessKey, AccessKeyServer } from '../lib/types';
 import { Card, Badge, SearchBar, Pagination, Toast, ConfirmDialog } from '../components/ui';
-import { KeyRound, Copy, Server } from 'lucide-react';
+import { Eye, KeyRound, Copy, Server, Trash2 } from 'lucide-react';
 
 const FALLBACK_SERVERS: AccessKeyServer[] = [
   { id: 1, name: 'Server 1', url: 'https://193.122.82.38.nip.io' },
@@ -24,6 +24,7 @@ export default function AccessKeys() {
   const [connectionId, setConnectionId] = useState('default');
   const [newKey, setNewKey] = useState<{ keyId: string; plainKey: string; server: AccessKeyServer; phone?: string; expiresAt?: string; connectionId: string } | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<AccessKey | null>(null);
+  const [selectedKey, setSelectedKey] = useState<AccessKey | null>(null);
   const [revokeReason, setRevokeReason] = useState('');
 
   const load = () => {
@@ -72,6 +73,22 @@ export default function AccessKeys() {
       await keyApi.reactivate(key.keyId);
     }
     showToast(`Key ${action}d`);
+    load();
+  };
+
+  const handleAssignPhone = async (key: AccessKey) => {
+    const number = prompt('Assign this pending key to phone number (e.g. 923001234567)');
+    if (!number) return;
+    await keyApi.assignPhone(key.keyId, number);
+    showToast('Key assigned to phone number');
+    load();
+  };
+
+  const handleDelete = async (key: AccessKey) => {
+    if (!window.confirm(`Delete access key ${key.keyId} permanently?`)) return;
+    await keyApi.delete(key.keyId);
+    showToast('Access key deleted');
+    setSelectedKey(null);
     load();
   };
 
@@ -141,7 +158,15 @@ export default function AccessKeys() {
               {loading ? <tr><td colSpan={8} className="text-center py-8 text-slate-500">Loading...</td></tr> : data.items.length === 0 ? <tr><td colSpan={8} className="text-center py-8 text-slate-500">No keys found</td></tr> : data.items.map((k) => (
                 <tr key={k._id} className="border-t border-slate-800">
                   <td className="px-4 py-3 text-primary-400">{k.keyId}</td><td className="px-4 py-3 text-slate-300">{k.serverName || `Server ${k.serverId || 1}`}</td><td className="px-4 py-3 font-mono text-slate-300">{k.displayId}</td><td className="px-4 py-3 text-slate-300">{k.assignedNumber ? `+${k.assignedNumber}` : '-'}</td><td className="px-4 py-3 text-slate-300">{k.connectionId || 'default'}</td><td className="px-4 py-3"><Badge status={k.status} /></td><td className="px-4 py-3 text-slate-400">{new Date(k.createdAt).toLocaleDateString()}</td>
-                  <td className="px-4 py-3"><div className="flex gap-1">{k.status === 'PENDING' && <button onClick={() => handleAction(k, 'activate')} className="btn-success text-xs px-2 py-1">Activate</button>}{k.status === 'ACTIVE' && <button onClick={() => handleAction(k, 'suspend')} className="btn-secondary text-xs px-2 py-1">Suspend</button>}{k.status === 'SUSPENDED' && <button onClick={() => handleAction(k, 'reactivate')} className="btn-success text-xs px-2 py-1">Reactivate</button>}{k.status !== 'REVOKED' && <button onClick={() => handleAction(k, 'revoke')} className="btn-danger text-xs px-2 py-1">Revoke</button>}</div></td>
+                  <td className="px-4 py-3"><div className="flex gap-1 flex-wrap">
+                    <button onClick={() => setSelectedKey(k)} className="btn-secondary text-xs px-2 py-1"><Eye className="w-3 h-3 inline" /> View</button>
+                    {k.status === 'PENDING' && <button onClick={() => handleAssignPhone(k)} className="btn-secondary text-xs px-2 py-1">Assign</button>}
+                    {k.status === 'PENDING' && <button onClick={() => handleAction(k, 'activate')} className="btn-success text-xs px-2 py-1">Activate</button>}
+                    {k.status === 'ACTIVE' && <button onClick={() => handleAction(k, 'suspend')} className="btn-secondary text-xs px-2 py-1">Suspend</button>}
+                    {k.status === 'SUSPENDED' && <button onClick={() => handleAction(k, 'reactivate')} className="btn-success text-xs px-2 py-1">Reactivate</button>}
+                    {k.status !== 'REVOKED' && <button onClick={() => handleAction(k, 'revoke')} className="btn-danger text-xs px-2 py-1">Revoke</button>}
+                    <button onClick={() => handleDelete(k)} className="btn-secondary text-error-500 text-xs px-2 py-1"><Trash2 className="w-3 h-3 inline" /></button>
+                  </div></td>
                 </tr>
               ))}
             </tbody>
@@ -149,6 +174,38 @@ export default function AccessKeys() {
         </div>
         <div className="p-4"><Pagination page={page} limit={20} total={data.total} onPage={setPage} /></div>
       </Card>
+
+      {selectedKey && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setSelectedKey(null)}>
+          <div className="w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+            <Card className="max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h3 className="text-xl font-semibold text-white">Access Key Details</h3>
+                <button onClick={() => setSelectedKey(null)} className="btn-secondary text-xs">Close</button>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                <div><span className="text-slate-500">Key ID:</span><div className="text-primary-400 font-mono break-all">{selectedKey.keyId}</div></div>
+                <div><span className="text-slate-500">Display:</span><div className="text-slate-300 font-mono">{selectedKey.displayId}</div></div>
+                <div><span className="text-slate-500">Status:</span><div><Badge status={selectedKey.status} /></div></div>
+                <div><span className="text-slate-500">Number:</span><div className="text-slate-300">{selectedKey.assignedNumber ? `+${selectedKey.assignedNumber}` : 'Not assigned'}</div></div>
+                <div><span className="text-slate-500">Server:</span><div className="text-slate-300">{selectedKey.serverName}</div></div>
+                <div><span className="text-slate-500">Connection:</span><div className="text-slate-300">{selectedKey.connectionId || 'default'}</div></div>
+                <div><span className="text-slate-500">Created:</span><div className="text-slate-300">{new Date(selectedKey.createdAt).toLocaleString()}</div></div>
+                <div><span className="text-slate-500">Activated:</span><div className="text-slate-300">{selectedKey.activatedAt ? new Date(selectedKey.activatedAt).toLocaleString() : '-'}</div></div>
+              </div>
+              <h4 className="text-white font-semibold mt-5 mb-2">Realtime History</h4>
+              <div className="h-56 overflow-y-auto space-y-2 rounded-lg border border-slate-800 p-3">
+                {selectedKey.history?.length ? selectedKey.history.map((h, i) => (
+                  <div key={i} className="text-sm border-b border-slate-800/70 pb-2 last:border-0">
+                    <div className="text-slate-200">{h.action}</div>
+                    <div className="text-xs text-slate-500">{new Date(h.at).toLocaleString()}{h.detail ? ` · ${h.detail}` : ''}</div>
+                  </div>
+                )) : <div className="text-slate-500 text-sm">No history</div>}
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog open={!!confirmRevoke} title="Revoke Access Key" message={`Are you sure you want to revoke key ${confirmRevoke?.keyId}? This action cannot be undone.`} onConfirm={async () => { if (confirmRevoke) { await keyApi.revoke(confirmRevoke.keyId, revokeReason || 'Revoked by admin'); setConfirmRevoke(null); setRevokeReason(''); showToast('Key revoked'); load(); } }} onCancel={() => { setConfirmRevoke(null); setRevokeReason(''); }} />
     </div>

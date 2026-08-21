@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { ticketApi, Ticket } from '../lib/types';
 import { Card, Badge, Toast } from '../components/ui';
-import { Send } from 'lucide-react';
+import { Send, Trash2, UserCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function TicketDetail() {
   const { ticketId } = useParams();
@@ -10,6 +11,7 @@ export default function TicketDetail() {
   const [reply, setReply] = useState('');
   const [toast, setToast] = useState('');
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   const load = () => {
     if (!ticketId) return;
@@ -43,6 +45,20 @@ export default function TicketDetail() {
     load();
   };
 
+  const handleAssignMe = async () => {
+    if (!ticketId) return;
+    await ticketApi.assignMe(ticketId);
+    showToast('Ticket assigned to you');
+    load();
+  };
+
+  const handleDelete = async () => {
+    if (!ticketId || !window.confirm('Delete this ticket permanently?')) return;
+    await ticketApi.delete(ticketId);
+    showToast('Ticket deleted');
+    navigate('/tickets');
+  };
+
   if (loading || !ticket) return <div className="text-slate-400 animate-pulse">Loading ticket...</div>;
 
   return (
@@ -51,6 +67,8 @@ export default function TicketDetail() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-white">Ticket: {ticket.ticketId}</h1>
         <div className="flex gap-2">
+          <button onClick={handleAssignMe} className="btn-secondary flex items-center gap-2"><UserCheck className="w-4 h-4" /> Assign Me</button>
+          <button onClick={handleDelete} className="btn-secondary text-error-500 flex items-center gap-2"><Trash2 className="w-4 h-4" /> Delete</button>
           <Badge status={ticket.status} />
           <Badge status={ticket.priority} />
         </div>
@@ -75,12 +93,12 @@ export default function TicketDetail() {
 
           <Card>
             <h3 className="text-white font-semibold mb-4">Conversation</h3>
-            <div className="space-y-3 max-h-[400px] overflow-y-auto">
+            <div className="space-y-3 h-[400px] overflow-y-auto pr-1">
               {ticket.replies.map((r, i) => (
                 <div key={i} className={`flex ${r.from === 'ADMIN' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${r.from === 'ADMIN' ? 'bg-primary-600 text-white' : 'bg-surface-900 text-slate-300'}`}>
                     <div className="text-xs mb-1 opacity-60">{r.from === 'ADMIN' ? 'Support Team' : 'Customer'}</div>
-                    <div>{r.message}</div>
+                    <div className="whitespace-pre-wrap break-words">{r.message}</div>
                     <div className={`text-xs mt-1 ${r.from === 'ADMIN' ? 'text-white/60' : 'text-slate-500'}`}>{new Date(r.at).toLocaleString()}</div>
                   </div>
                 </div>

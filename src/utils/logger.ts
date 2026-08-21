@@ -10,12 +10,6 @@ const level = config.logLevel || 'info';
 
 export const logger = pino({
   level,
-  transport: config.isProd
-    ? undefined
-    : {
-        target: 'pino-pretty',
-        options: { colorize: true, translateTime: 'SYS:standard' },
-      },
 });
 
 export function redact(value: string | undefined, keep = 4): string {

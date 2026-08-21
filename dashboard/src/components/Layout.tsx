@@ -33,6 +33,7 @@ export default function Layout({ admin, onLogout }: { admin: AdminInfo; onLogout
 
   return (
     <div className="flex h-screen bg-surface-950">
+      {mobileOpen && <button aria-label="Close navigation" onClick={() => setMobileOpen(false)} className="fixed inset-0 z-40 bg-black/60 md:hidden" />}
       {/* Sidebar */}
       <aside className={`w-64 bg-surface-900 border-r border-slate-800 flex flex-col transition-transform ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static h-full z-50`}>
         <div className="p-5 border-b border-slate-800">
@@ -81,11 +82,11 @@ export default function Layout({ admin, onLogout }: { admin: AdminInfo; onLogout
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="bg-surface-900 border-b border-slate-800 px-5 py-3 md:hidden flex items-center justify-between">
           <div className="font-bold text-white">AA MD BOT</div>
-          <button onClick={() => setMobileOpen(!mobileOpen)} className="text-slate-400">
+          <button aria-label="Open navigation" onClick={() => setMobileOpen(!mobileOpen)} className="text-slate-400 p-1">
             <LayoutDashboard className="w-6 h-6" />
           </button>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <main className="flex-1 min-w-0 overflow-y-auto p-4 md:p-6">
           <Outlet />
         </main>
       </div>

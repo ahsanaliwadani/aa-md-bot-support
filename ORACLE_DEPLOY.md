@@ -70,7 +70,7 @@ Header secret method:
 curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
   -H "Content-Type: application/json" \
   -H "X-Access-Key-Secret: Ahsan&ali12:@" \
-  -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
+  -d '{"phone":"923001234567","connectionId":"default"}'
 ```
 
 Bearer secret method:
@@ -79,7 +79,7 @@ Bearer secret method:
 curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer Ahsan&ali12:@" \
-  -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
+  -d '{"phone":"923001234567","connectionId":"default"}'
 ```
 
 ## Useful SSH management commands

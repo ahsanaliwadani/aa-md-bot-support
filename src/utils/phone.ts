@@ -14,7 +14,12 @@ export function jidToPhone(jid: string): string {
 }
 
 export function isWhatsAppJid(jid: string): boolean {
-  return jid.endsWith('@s.whatsapp.net') || jid.endsWith('@g.us');
+  return jid.endsWith('@s.whatsapp.net') || jid.endsWith('@lid') || jid.endsWith('@g.us');
+}
+
+/** A one-to-one WhatsApp address, including privacy-preserving LID addresses. */
+export function isIndividualWhatsAppJid(jid: string): boolean {
+  return jid.endsWith('@s.whatsapp.net') || jid.endsWith('@lid');
 }
 
 const COUNTRY_CODES: Record<string, string> = {

@@ -94,6 +94,7 @@ export class BotManager {
   }
 
   private async createSocket(): Promise<void> {
+    await fs.mkdir(SESSION_DIR, { recursive: true });
     const { version, isLatest } = await fetchLatestBaileysVersion();
     logger.info({ version, isLatest }, 'Baileys version');
 
@@ -144,7 +145,7 @@ export class BotManager {
           type: 'BOT_CONNECTED',
           severity: 'INFO',
           message: 'WhatsApp Support Bot connected',
-        });
+        }).catch((err) => logger.error({ err }, 'Could not record bot connection event'));
       }
 
       if (connection === 'close') {
@@ -162,7 +163,7 @@ export class BotManager {
           type: 'BOT_DISCONNECTED',
           severity: 'WARN',
           message: `WhatsApp disconnected (code: ${statusCode})`,
-        });
+        }).catch((err) => logger.error({ err }, 'Could not record bot disconnection event'));
 
         if (shouldReconnect && this.reconnectAttempts < this.maxReconnect) {
           this.reconnectAttempts++;
@@ -175,9 +176,9 @@ export class BotManager {
       }
     });
 
-    sock.ev.on('messages.upsert', async ({ messages }) => {
+    sock.ev.on('messages.upsert', ({ messages }) => {
       for (const msg of messages) {
-        if (!msg.message || msg.key.fromMe) continue;
+        if (!msg.message) continue;
         this.enqueueMessage(async () => {
           try {
             await handleMessage(sock, msg);
@@ -195,13 +196,13 @@ export class BotManager {
 
   async sendText(jid: string, text: string): Promise<void> {
     if (!this.sock || !this.connected) {
-      logger.warn({ jid }, 'Cannot send — bot not connected');
-      return;
+      throw new Error('WhatsApp bot is not connected');
     }
     try {
       await this.sock.sendMessage(jid, { text });
     } catch (err) {
       logger.error({ err, jid }, 'Failed to send message');
+      throw err;
     }
   }
 

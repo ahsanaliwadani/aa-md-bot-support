@@ -100,18 +100,20 @@ Open the printed dashboard URL in your browser. Manage WhatsApp connection from 
 
 Both secret styles work after deploy because `ACCESS_KEY_SECRET=Ahsan&ali12:@` is configured automatically:
 
+Keys generated through this API and the dashboard are **lifetime keys**; do not send an expiry field.
+
 ```bash
 curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
   -H "Content-Type: application/json" \
   -H "X-Access-Key-Secret: Ahsan&ali12:@" \
-  -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
+  -d '{"phone":"923001234567","connectionId":"default"}'
 ```
 
 ```bash
 curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer Ahsan&ali12:@" \
-  -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
+  -d '{"phone":"923001234567","connectionId":"default"}'
 ```
 
 ### Useful server commands
@@ -487,7 +489,6 @@ curl -X POST "https://YOUR-DOMAIN/api/access-keys/generate" \
   -d '{
     "serverId": 1,
     "phone": "923001234567",
-    "expiresInDays": 30,
     "connectionId": "default"
   }'
 ```
@@ -501,12 +502,22 @@ curl -X POST "https://YOUR-DOMAIN/api/access-keys/generate" \
   -d '{
     "serverId": 2,
     "phone": "923001234567",
-    "expiresInDays": 30,
     "connectionId": "default"
   }'
 ```
 
 `serverId` must be `1`, `2`, `3`, or `4`. There is no generation limit enforced per server. Dashboard users can also select the server from **Access Keys → Generate Access Key by Server**.
+
+### Permanently delete a key
+
+Use the `id` returned by the generate/action response (or the `keyId`). This endpoint uses the same `ACCESS_KEY_SECRET` header and immediately notifies connected dashboards.
+
+```bash
+curl -X POST "https://YOUR-DOMAIN/api/access-keys/action" \
+  -H "Content-Type: application/json" \
+  -H "X-Access-Key-Secret: Ahsan&ali12:@" \
+  -d '{"action":"delete","id":"ACCESS_KEY_ID"}'
+```
 
 ## Oracle Cloud deployment checklist
 

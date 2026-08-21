@@ -8,11 +8,13 @@ import makeWASocket, {
 import P from 'pino';
 import qrcode from 'qrcode-terminal';
 import path from 'path';
+import fs from 'fs/promises';
 import { logger } from '../utils/logger';
 import { handleMessage } from '../handlers/messageHandler';
 import { SystemEvent } from '../models';
 
 const SESSION_DIR = path.resolve(process.cwd(), 'sessions');
+const SESSION_BACKUP_DIR = path.resolve(process.cwd(), 'session-backups');
 
 export class BotManager {
   private sock: WASocket | null = null;
@@ -25,6 +27,9 @@ export class BotManager {
   private latestQr: string | null = null;
   private latestPairingCode: string | null = null;
   private lastConnectionUpdateAt: Date | null = null;
+  private starting: Promise<void> | null = null;
+  private messageQueue: Promise<void> = Promise.resolve();
+  private backupTimer: NodeJS.Timeout | null = null;
 
   isConnected(): boolean {
     return this.connected;
@@ -55,7 +60,40 @@ export class BotManager {
     if (this.statusCallback) this.statusCallback();
   }
 
+  private scheduleSessionBackup(): void {
+    if (this.backupTimer) clearTimeout(this.backupTimer);
+    this.backupTimer = setTimeout(() => {
+      this.backupSession().catch((err) => logger.warn({ err }, 'Session backup failed'));
+    }, 1000);
+  }
+
+  private async backupSession(): Promise<void> {
+    await fs.mkdir(SESSION_BACKUP_DIR, { recursive: true });
+    const backupPath = path.join(SESSION_BACKUP_DIR, `session-${Date.now()}`);
+    await fs.cp(SESSION_DIR, backupPath, { recursive: true, force: true });
+
+    const backups = await fs.readdir(SESSION_BACKUP_DIR);
+    const sessionBackups = backups.filter((name) => name.startsWith('session-')).sort().reverse();
+    await Promise.all(
+      sessionBackups.slice(5).map((name) => fs.rm(path.join(SESSION_BACKUP_DIR, name), { recursive: true, force: true })),
+    );
+  }
+
+  private enqueueMessage(task: () => Promise<void>): void {
+    this.messageQueue = this.messageQueue
+      .then(task)
+      .catch((err) => logger.error({ err }, 'Queued WhatsApp message handling failed'));
+  }
+
   async start(): Promise<void> {
+    if (this.starting) return this.starting;
+    this.starting = this.createSocket().finally(() => {
+      this.starting = null;
+    });
+    return this.starting;
+  }
+
+  private async createSocket(): Promise<void> {
     const { version, isLatest } = await fetchLatestBaileysVersion();
     logger.info({ version, isLatest }, 'Baileys version');
 
@@ -74,7 +112,10 @@ export class BotManager {
 
     this.sock = sock;
 
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('creds.update', async () => {
+      await saveCreds();
+      this.scheduleSessionBackup();
+    });
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
@@ -136,12 +177,14 @@ export class BotManager {
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
       for (const msg of messages) {
-        if (!msg.message || msg.key.fromMe) continue;
-        try {
-          await handleMessage(sock, msg);
-        } catch (err) {
-          logger.error({ err, key: msg.key }, 'Message handling error');
-        }
+        if (!msg.message) continue;
+        this.enqueueMessage(async () => {
+          try {
+            await handleMessage(sock, msg);
+          } catch (err) {
+            logger.error({ err, key: msg.key }, 'Message handling error');
+          }
+        });
       }
     });
 
@@ -163,9 +206,11 @@ export class BotManager {
   }
 
   async requestPairingCode(phone: string): Promise<string | null> {
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (!this.sock) await this.start();
     if (!this.sock) return null;
     try {
-      const code = await this.sock.requestPairingCode(phone);
+      const code = await this.sock.requestPairingCode(cleanPhone);
       if (code) {
         this.latestPairingCode = code;
         this.lastConnectionUpdateAt = new Date();
@@ -182,10 +227,12 @@ export class BotManager {
   async stop(): Promise<void> {
     if (this.sock) {
       try {
-        await this.sock.logout();
+        this.sock.end(new Error('Graceful shutdown'));
       } catch {
         // ignore
       }
+      if (this.backupTimer) clearTimeout(this.backupTimer);
+      await this.backupSession().catch((err) => logger.warn({ err }, 'Final session backup failed'));
       this.sock = null;
       this.connected = false;
       this.latestQr = null;

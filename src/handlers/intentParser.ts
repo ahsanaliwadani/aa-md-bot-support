@@ -10,6 +10,7 @@ export type Intent =
   | 'ACTIVATE'
   | 'KEY_ISSUE'
   | 'PAYMENT_ISSUE'
+  | 'PAYMENT_STATUS'
   | 'BOT_NOT_WORKING'
   | 'REPORT_BUG'
   | 'CONNECTION_ISSUE'
@@ -33,8 +34,9 @@ export interface ParseResult {
 const MENU_TRIGGERS = ['hi', 'hello', 'menu', 'help', 'start', 'hey', '0', '00'];
 const BUY_TRIGGERS = ['1', 'buy', 'purchase', 'access key', 'key'];
 const ACTIVATE_TRIGGERS = ['2', 'activate', 'activation'];
-const KEY_ISSUE_TRIGGERS = ['3', 'key issue', 'access key issue'];
+const KEY_ISSUE_TRIGGERS = ['3', 'issue', 'key issue', 'access key issue'];
 const PAYMENT_TRIGGERS = ['4', 'payment', 'payment issue'];
+const PAYMENT_STATUS_TRIGGERS = ['payment status', 'my payment', 'payment request'];
 const BOT_NOT_WORKING_TRIGGERS = ['5', 'bot not working', 'not working'];
 const BUG_TRIGGERS = ['6', 'bug', 'report bug', 'report'];
 const CONNECTION_TRIGGERS = ['7', 'connection', 'connection issue', 'connect'];
@@ -53,6 +55,7 @@ export function parseIntent(raw: string): ParseResult {
   if (BUY_TRIGGERS.includes(lower)) return { intent: 'BUY', raw, cleaned: lower };
   if (ACTIVATE_TRIGGERS.includes(lower)) return { intent: 'ACTIVATE', raw, cleaned: lower };
   if (KEY_ISSUE_TRIGGERS.includes(lower)) return { intent: 'KEY_ISSUE', raw, cleaned: lower };
+  if (PAYMENT_STATUS_TRIGGERS.includes(lower)) return { intent: 'PAYMENT_STATUS', raw, cleaned: lower };
   if (PAYMENT_TRIGGERS.includes(lower)) return { intent: 'PAYMENT_ISSUE', raw, cleaned: lower };
   if (BOT_NOT_WORKING_TRIGGERS.includes(lower)) return { intent: 'BOT_NOT_WORKING', raw, cleaned: lower };
   if (BUG_TRIGGERS.includes(lower)) return { intent: 'REPORT_BUG', raw, cleaned: lower };

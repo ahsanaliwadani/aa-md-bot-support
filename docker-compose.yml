@@ -3,14 +3,14 @@ version: '3.8'
 services:
   mongodb:
     image: mongo:7
-    container_name: aamd-mongo
+    container_name: aamd-support-mongo
     restart: always
     ports:
-      - "127.0.0.1:27017:27017"
+      - "127.0.0.1:27018:27017"
     volumes:
-      - ./mongodb/data:/data/db
+      - ./mongodb/support-data:/data/db
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-aamduser}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-aamd_support_user}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS:-change_me}
       MONGO_INITDB_DATABASE: aamd_support
     command: ["--auth", "--bind_ip_all"]

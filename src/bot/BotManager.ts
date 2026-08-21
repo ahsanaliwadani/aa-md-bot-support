@@ -177,7 +177,7 @@ export class BotManager {
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
       for (const msg of messages) {
-        if (!msg.message) continue;
+        if (!msg.message || msg.key.fromMe) continue;
         this.enqueueMessage(async () => {
           try {
             await handleMessage(sock, msg);

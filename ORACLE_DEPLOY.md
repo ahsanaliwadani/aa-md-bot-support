@@ -5,7 +5,7 @@ Run these commands inside your Oracle Ubuntu VM SSH session.
 ## Recommended one-command deploy
 
 ```bash
-sudo bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" fetch --all --prune; git -C "$APP" reset --hard origin/main; fi; cd "$APP"; bash deploy.sh'
+sudo bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" pull --ff-only; fi; cd "$APP"; bash deploy.sh'
 ```
 
 ## Deploy with an existing domain
@@ -13,7 +13,7 @@ sudo bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certifi
 If your DNS A record already points to the Oracle public IP, replace the domain and run:
 
 ```bash
-sudo DOMAIN_NAME=support.yourdomain.com bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" fetch --all --prune; git -C "$APP" reset --hard origin/main; fi; cd "$APP"; bash deploy.sh'
+sudo DOMAIN_NAME=support.yourdomain.com bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" pull --ff-only; fi; cd "$APP"; bash deploy.sh'
 ```
 
 Then enable HTTPS:

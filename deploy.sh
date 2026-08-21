@@ -47,15 +47,9 @@ echo "Architecture: $ARCH | Log: $DEPLOY_LOG"
 
 hdr "1. System packages"
 apt-get update -qq
-# Ubuntu 24.04 can refuse installing/upgrading ufw while old persistent
-# firewall packages are present or held. They are not required for this app;
-# remove/unhold them before installing the supported firewall stack.
-apt-mark unhold iptables-persistent netfilter-persistent >/dev/null 2>&1 || true
-DEBIAN_FRONTEND=noninteractive apt-get purge -yq iptables-persistent netfilter-persistent >/dev/null 2>&1 || true
-DEBIAN_FRONTEND=noninteractive apt-get autoremove -yq >/dev/null 2>&1 || true
 DEBIAN_FRONTEND=noninteractive apt-get install -yq \
   curl wget git unzip gnupg build-essential ca-certificates openssl \
-  nginx certbot python3-certbot-nginx ufw iptables \
+  nginx certbot python3-certbot-nginx ufw iptables-persistent netfilter-persistent \
   software-properties-common apt-transport-https rsync
 ok "System tools installed"
 
@@ -91,11 +85,11 @@ install -d -m 755 -o mongodb -g mongodb /var/log/mongodb /var/lib/mongodb
 systemctl enable mongod >/dev/null 2>&1 || true
 systemctl start mongod || systemctl restart mongod
 for i in $(seq 1 30); do
-  if (echo > "/dev/tcp/${MONGO_HOST}/${MONGO_PORT}") >/dev/null 2>&1; then
-    ok "MongoDB TCP port responding on ${MONGO_HOST}:${MONGO_PORT}"
+  if mongosh --quiet "mongodb://${MONGO_HOST}:${MONGO_PORT}/admin" --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then
+    ok "MongoDB responding on ${MONGO_HOST}:${MONGO_PORT}"
     break
   fi
-  [ "$i" -eq 30 ] && fail "MongoDB did not become ready on ${MONGO_HOST}:${MONGO_PORT}"
+  [ "$i" -eq 30 ] && fail "MongoDB did not become ready"
   sleep 2
 done
 
@@ -294,12 +288,7 @@ ufw --force enable || true
 # Oracle images sometimes have iptables REJECT rules before UFW allows HTTP(S).
 iptables -C INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport 80 -j ACCEPT
 iptables -C INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport 443 -j ACCEPT
-if command -v netfilter-persistent >/dev/null 2>&1; then
-  netfilter-persistent save >/dev/null 2>&1 || true
-elif command -v iptables-save >/dev/null 2>&1; then
-  mkdir -p /etc/iptables
-  iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
-fi
+netfilter-persistent save >/dev/null 2>&1 || true
 ok "Nginx and firewall ready"
 
 hdr "10. Health check"

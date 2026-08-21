@@ -2,8 +2,9 @@ import { WASocket, WAMessage } from '@whiskeysockets/baileys';
 import { jidToPhone, countryFromPhone } from '../utils/phone';
 import { parseIntent, Intent } from './intentParser';
 import { conversationService, userService, accessKeyService, ticketService, paymentService, faqService, messageService, loadSettings } from '../services';
+import { askSupportAi } from '../services/ai';
 import { ConversationStateName } from '../models';
-import { Ticket } from '../models';
+import { Payment, Ticket } from '../models';
 import { logger } from '../utils/logger';
 import {
   getMenuText,
@@ -28,11 +29,17 @@ function getText(msg: WAMessage): string {
   if (msg.message.extendedTextMessage?.text) return msg.message.extendedTextMessage.text;
   if (msg.message.imageMessage?.caption) return msg.message.imageMessage.caption;
   if (msg.message.videoMessage?.caption) return msg.message.videoMessage.caption;
+  if (msg.message.imageMessage) return '[Image/screenshot received]';
+  if (msg.message.videoMessage) return '[Video received]';
+  if (msg.message.documentMessage) return '[Document received]';
   return '';
 }
 
 const COOLDOWN_MS = 3000;
-const lastMessage = new Map<string, number>();
+const SPAM_WINDOW_MS = 60_000;
+const SPAM_MAX_MESSAGES = 20;
+const lastMessage = new Map<string, { at: number; text: string }>();
+const messageWindows = new Map<string, { startedAt: number; count: number }>();
 
 async function send(sock: WASocket, jid: string, text: string): Promise<void> {
   await sock.sendMessage(jid, { text });
@@ -43,17 +50,28 @@ export async function handleMessage(sock: WASocket, msg: WAMessage): Promise<voi
   const jid = msg.key.remoteJid || '';
   if (!jid.endsWith('@s.whatsapp.net')) return;
 
-  // Rate limiting / cooldown
-  const now = Date.now();
-  const last = lastMessage.get(jid) || 0;
-  if (now - last < COOLDOWN_MS) return;
-  lastMessage.set(jid, now);
-
   const text = getText(msg);
   if (!text) return;
 
+  // Only suppress exact duplicate message retries; do not drop fast menu replies like "Hi" then "1".
+  const now = Date.now();
+  const last = lastMessage.get(jid);
+  if (last && last.text === text && now - last.at < COOLDOWN_MS) return;
+  lastMessage.set(jid, { at: now, text });
+
   const phone = jidToPhone(jid);
   await messageService.logMessage({ jid, direction: 'INCOMING', body: text });
+
+  const spamWindow = messageWindows.get(jid);
+  if (!spamWindow || now - spamWindow.startedAt > SPAM_WINDOW_MS) {
+    messageWindows.set(jid, { startedAt: now, count: 1 });
+  } else {
+    spamWindow.count += 1;
+    if (spamWindow.count > SPAM_MAX_MESSAGES) {
+      logger.warn({ jid: phone.slice(-4) }, 'Ignoring message because anti-spam limit was exceeded');
+      return;
+    }
+  }
 
   const user = await userService.findOrCreateUser(jid);
   if (user.blocked) return;
@@ -71,8 +89,7 @@ export async function handleMessage(sock: WASocket, msg: WAMessage): Promise<voi
 
   if (parsed.intent === 'MENU') {
     await conversationService.resetState(jid);
-    await send(sock, jid, await getWelcomeText());
-    await send(sock, jid, await getMenuText());
+    await send(sock, jid, `${await getWelcomeText()}\n\n${await getMenuText()}`);
     return;
   }
 
@@ -100,7 +117,10 @@ async function handleIdleMessage(sock: WASocket, jid: string, parsed: ReturnType
       break;
     case 'PAYMENT_ISSUE':
       await send(sock, jid, PAYMENT_ISSUE_PROMPT);
-      await conversationService.setState(jid, 'WAITING_FOR_ISSUE_DESC', { category: 'Payment' });
+      await conversationService.setState(jid, 'WAITING_FOR_ISSUE_DESC', { category: 'Payment', subject: 'Payment Issue' });
+      break;
+    case 'PAYMENT_STATUS':
+      await handlePaymentStatus(sock, jid);
       break;
     case 'BOT_NOT_WORKING':
       await send(sock, jid, BOT_NOT_WORKING_PROMPT);
@@ -150,12 +170,44 @@ async function handleIdleMessage(sock: WASocket, jid: string, parsed: ReturnType
       break;
     }
     default: {
-      // Try FAQ match, then show menu
+      // Try FAQ match, then AI fallback, then create/update a dashboard ticket for human follow-up.
       const faq = await faqService.findFAQMatch(parsed.raw);
       if (faq) {
-        await send(sock, jid, `❓ ${faq.question}\n\n${faq.answer}\n\nType "menu" for more options.`);
+        await send(sock, jid, `❓ ${faq.question}
+
+${faq.answer}
+
+Type "menu" for more options.`);
+        return;
+      }
+
+      const aiAnswer = await askSupportAi(parsed.raw);
+      if (aiAnswer) await send(sock, jid, `${aiAnswer}
+
+${await getMenuText()}`);
+      else await send(sock, jid, `Thanks for your message. Our support team will review it.
+
+${await getMenuText()}`);
+
+      const user = await userService.findOrCreateUser(jid);
+      const existing = await Ticket.findOne({
+        customerId: user._id,
+        status: { $in: ['OPEN', 'IN_PROGRESS', 'WAITING_FOR_USER'] },
+        category: 'AI Support',
+      }).sort({ createdAt: -1 });
+
+      if (existing) {
+        await ticketService.addReply(existing.ticketId, 'USER', parsed.raw.slice(0, 2000));
       } else {
-        await send(sock, jid, await getMenuText());
+        await ticketService.createTicket({
+          customerId: user._id,
+          jid,
+          phoneNumber: user.phoneNumber,
+          category: 'AI Support',
+          subject: 'Unmanaged WhatsApp Query',
+          description: parsed.raw.slice(0, 2000),
+          priority: 'NORMAL',
+        });
       }
     }
   }
@@ -187,6 +239,12 @@ async function handleStatefulMessage(
       break;
     case 'WAITING_FOR_BUG_DESC':
       await handleBugDescription(sock, jid, rawText, data);
+      break;
+    case 'WAITING_FOR_BOT_FEATURE':
+      await handleBotFeature(sock, jid, rawText, data);
+      break;
+    case 'WAITING_FOR_BUG_ERROR':
+      await handleBotError(sock, jid, rawText, data);
       break;
     case 'WAITING_FOR_CONNECTION_ISSUE':
       await handleConnectionIssue(sock, jid, rawText, data);
@@ -227,11 +285,19 @@ async function handleWaitingForConfirmation(sock: WASocket, jid: string, parsed:
     const isPakistan = country === 'Pakistan';
     const pricing = isPakistan ? settings.pricing.pakistan : settings.pricing.international;
 
+    user.phoneNumber = number;
+    user.country = country;
+    user.paymentStatus = 'PENDING';
+    user.accessKeyStatus = user.accessKeyStatus === 'ACTIVE' ? user.accessKeyStatus : 'PENDING';
+    user.tags = Array.from(new Set([...(user.tags || []), 'access-key-request']));
+    await user.save();
+
     const payment = await paymentService.createPaymentRequest({
       customerId: user._id,
       amount: pricing.amount,
       currency: pricing.currency,
       country,
+      method: 'Manual',
     });
 
     await conversationService.resetState(jid);
@@ -303,6 +369,27 @@ async function handleIssueCategory(sock: WASocket, jid: string, raw: string, _da
   await send(sock, jid, `Please describe your issue in detail.\n\nIssue: ${subject}`);
 }
 
+
+async function handlePaymentStatus(sock: WASocket, jid: string): Promise<void> {
+  const user = await userService.findOrCreateUser(jid);
+  const payment = await Payment.findOne({ customerId: user._id }).sort({ createdAt: -1 });
+
+  if (!payment) {
+    await send(sock, jid, '💳 No payment request found.\n\nSelect 1️⃣ / type "buy" to request an Access Key.');
+    return;
+  }
+
+  await send(
+    sock,
+    jid,
+    `💳 Payment Request: ${payment.paymentRequestId}
+Status: ${payment.status}
+Amount: ${payment.amount} ${payment.currency}
+
+Only admin approval can issue or activate an Access Key.`,
+  );
+}
+
 async function handleIssueDescription(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {
   const category = (data.category as string) || 'Other';
   const subject = (data.subject as string) || 'Support Issue';
@@ -325,8 +412,29 @@ async function handleIssueDescription(sock: WASocket, jid: string, raw: string, 
 }
 
 async function handleBugDescription(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {
-  const category = (data.category as string) || 'Other';
+  await conversationService.setState(jid, 'WAITING_FOR_BOT_FEATURE', {
+    ...data,
+    description: raw.slice(0, 2000),
+  });
+  await send(sock, jid, 'Which command or feature is affected?');
+}
+
+async function handleBotFeature(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {
+  await conversationService.setState(jid, 'WAITING_FOR_BUG_ERROR', {
+    ...data,
+    affectedFeature: raw.slice(0, 500),
+  });
+  await send(sock, jid, 'Please send the exact error message or screenshot if available. If none, reply "none".');
+}
+
+async function handleBotError(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {
+  const category = (data.category as string) || 'Bot Offline';
   const user = await userService.findOrCreateUser(jid);
+  const description = [
+    `Issue: ${(data.description as string) || 'Not provided'}`,
+    `Affected command/feature: ${(data.affectedFeature as string) || 'Not provided'}`,
+    `Error/screenshot note: ${raw.slice(0, 1000)}`,
+  ].join('\n');
 
   const ticket = await ticketService.createTicket({
     customerId: user._id,
@@ -334,14 +442,18 @@ async function handleBugDescription(sock: WASocket, jid: string, raw: string, da
     phoneNumber: user.phoneNumber,
     category,
     subject: 'Bot Not Working Report',
-    description: raw.slice(0, 2000),
+    description,
     priority: 'HIGH',
   });
 
   await conversationService.resetState(jid);
   await send(sock, jid, TICKET_CREATED_TEXT(ticket.ticketId, ticket.priority));
 
-  await notifyAdmins(sock, jid, `🚨 BOT NOT WORKING REPORT\n\nTicket: ${ticket.ticketId}\nNumber: +${user.phoneNumber}\nDescription: ${raw.slice(0, 200)}`);
+  await notifyAdmins(sock, jid, `🚨 BOT NOT WORKING REPORT
+
+Ticket: ${ticket.ticketId}
+Number: +${user.phoneNumber}
+Description: ${description.slice(0, 300)}`);
 }
 
 async function handleConnectionIssue(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {

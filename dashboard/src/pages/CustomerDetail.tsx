@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { customerApi, Customer, Ticket, Payment } from '../lib/types';
 import { Card, Badge, Toast, ConfirmDialog } from '../components/ui';
 
 export default function CustomerDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -36,7 +37,20 @@ export default function CustomerDetail() {
       {toast && <Toast message={toast} onClose={() => setToast('')} />}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">Customer: {customer.customerId}</h1>
-        <span className="text-slate-400">+{customer.phoneNumber}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-slate-400">+{customer.phoneNumber}</span>
+          <button
+            onClick={async () => {
+              if (!window.confirm('Delete this customer and all tickets, payments, and messages?')) return;
+              await customerApi.delete(customer._id);
+              showToast('Customer deleted');
+              navigate('/customers');
+            }}
+            className="btn-danger"
+          >
+            Delete Customer
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-2 border-b border-slate-800">
@@ -144,12 +158,12 @@ export default function CustomerDetail() {
 
       {tab === 'conversation' && (
         <Card>
-          <div className="space-y-3 max-h-[500px] overflow-y-auto">
+          <div className="space-y-3 h-[500px] overflow-y-auto pr-1">
             {messages.length === 0 && <div className="text-slate-500 text-sm">No messages recorded</div>}
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.direction === 'OUTGOING' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[70%] px-3 py-2 rounded-lg text-sm ${m.direction === 'OUTGOING' ? 'bg-primary-600 text-white' : 'bg-surface-900 text-slate-300'}`}>
-                  <div>{m.body}</div>
+                  <div className="whitespace-pre-wrap break-words">{m.body}</div>
                   <div className={`text-xs mt-1 ${m.direction === 'OUTGOING' ? 'text-white/60' : 'text-slate-500'}`}>{new Date(m.at).toLocaleString()}</div>
                 </div>
               </div>

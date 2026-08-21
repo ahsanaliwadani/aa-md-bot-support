@@ -1,0 +1,18 @@
+{
+  "name": "AA MD Bot Support Dashboard",
+  "short_name": "AA Support",
+  "description": "Installable dashboard for AA MD Bot customer support, tickets, chats, and access keys.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

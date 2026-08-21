@@ -3,6 +3,8 @@ import { generateAccessKey, hashKey, maskKey, isValidKeyFormat } from '../utils/
 import { logger } from '../utils/logger';
 import mongoose from 'mongoose';
 import { emitRealtime } from './realtime';
+import { findOrCreateUser } from './user';
+import { phoneToJid } from '../utils/phone';
 
 export const ACCESS_KEY_SERVERS = [
   { id: 1, name: 'Server 1', url: 'https://193.122.82.38.nip.io' },
@@ -85,6 +87,16 @@ export async function generateKey(input: mongoose.Types.ObjectId | GenerateKeyIn
     ],
   });
 
+  if (phone) {
+    const user = await findOrCreateUser(phoneToJid(phone));
+    key.customerId = user._id;
+    await key.save();
+    await User.findByIdAndUpdate(user._id, {
+      accessKeyId: key._id,
+      accessKeyStatus: status,
+    });
+  }
+
   logger.info({ keyId, serverId: server.id, phone }, 'Access key generated');
   emitRealtime('access-key:new', key.toObject());
   return {
@@ -110,13 +122,13 @@ export async function assignKey(
   if (!key) return null;
   if (key.status !== 'PENDING') return null;
 
-  key.assignedNumber = number;
+  key.assignedNumber = normalizePhone(number);
   key.customerId = customerId;
   key.history.push({
     action: 'KEY_ASSIGNED',
     at: new Date(),
     adminId,
-    detail: `Assigned to ${number}`,
+    detail: `Assigned to ${key.assignedNumber}`,
   });
   await key.save();
 
@@ -128,6 +140,17 @@ export async function assignKey(
   emitRealtime('access-key:updated', key.toObject());
 
   return key;
+}
+
+export async function assignKeyToPhone(
+  keyId: string,
+  phone: string,
+  adminId: mongoose.Types.ObjectId,
+): Promise<IAccessKey | null> {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return null;
+  const user = await findOrCreateUser(phoneToJid(normalized));
+  return assignKey(keyId, normalized, user._id, adminId);
 }
 
 export async function activateKey(

@@ -19,7 +19,7 @@ function extractAiText(payload: unknown): string | null {
 }
 
 export async function askSupportAi(question: string): Promise<string | null> {
-  const prompt = `You are AA MD Bot Official Support. Reply briefly and helpfully in the user's language. If the user wants to buy an access key, pricing, activation, payment help, bot not working, bug report, connection help, or human support, guide them to reply with menu option 1-9. User message: ${question}`;
+  const prompt = `You are AA MD Bot Official Support, a powerful WhatsApp support assistant. Reply in the user's language, warmly and briefly. Do not dump the full menu unless the user explicitly asks for menu/help. Help diagnose issues, ask one useful follow-up question when needed, and mention exact menu numbers only when they clearly fit: 1 buy key, 2 activate key, 3 key issue, 4 payment issue, 5 bot not working, 6 bug report, 7 connection issue, 8 key info, 9 pricing, 10 contact. User message: ${question}`;
 
   for (const endpoint of AI_ENDPOINTS) {
     try {

@@ -15,6 +15,9 @@ export interface IUser extends Document {
   tags: string[];
   blocked: boolean;
   blockedReason?: string;
+  botPaused: boolean;
+  botPausedBy?: mongoose.Types.ObjectId;
+  botPausedAt?: Date;
   firstContact: Date;
   lastContact: Date;
   createdAt: Date;
@@ -49,6 +52,9 @@ const UserSchema = new Schema<IUser>(
     tags: { type: [String], default: [] },
     blocked: { type: Boolean, default: false },
     blockedReason: { type: String },
+    botPaused: { type: Boolean, default: false, index: true },
+    botPausedBy: { type: Schema.Types.ObjectId, ref: 'Admin' },
+    botPausedAt: { type: Date },
     firstContact: { type: Date, default: Date.now },
     lastContact: { type: Date, default: Date.now },
   },

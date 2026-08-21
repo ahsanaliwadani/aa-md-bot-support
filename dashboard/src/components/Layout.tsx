@@ -4,7 +4,12 @@ import {
   LayoutDashboard, Users, Key, CreditCard, Ticket, HelpCircle,
   ScrollText, Activity, Settings as SettingsIcon, Shield, LogOut, Bot, MessageSquare, Smartphone,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+};
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -24,6 +29,16 @@ const navItems = [
 export default function Layout({ admin, onLogout }: { admin: AdminInfo; onLogout: () => void }) {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -87,6 +102,25 @@ export default function Layout({ admin, onLogout }: { admin: AdminInfo; onLogout
           </button>
         </header>
         <main className="flex-1 min-w-0 overflow-y-auto p-4 md:p-6">
+          {installPrompt && (
+            <div className="mb-4 rounded-xl border border-primary-500/30 bg-primary-500/10 p-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-white font-medium text-sm">Install dashboard app</div>
+                <div className="text-slate-400 text-xs">Add this dashboard to your phone home screen for app-like access.</div>
+              </div>
+              <button
+                onClick={async () => {
+                  const prompt = installPrompt;
+                  setInstallPrompt(null);
+                  await prompt.prompt();
+                  await prompt.userChoice.catch(() => undefined);
+                }}
+                className="btn-primary text-sm whitespace-nowrap"
+              >
+                Install App
+              </button>
+            </div>
+          )}
           <Outlet />
         </main>
       </div>

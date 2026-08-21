@@ -75,7 +75,7 @@ router.post(
   },
 );
 
-const statusSchema = z.object({ status: z.enum(['WAITING_FOR_USER', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']) });
+const statusSchema = z.object({ status: z.enum(['OPEN', 'WAITING_FOR_USER', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']) });
 
 router.post(
   '/:ticketId/status',
@@ -121,6 +121,46 @@ router.post(
       return;
     }
     res.json({ ticket });
+  },
+);
+
+router.post(
+  '/:ticketId/assign-me',
+  authRequired,
+  requirePermission('tickets:write'),
+  audit('TICKET_ASSIGNED_TO_ME', 'ticket'),
+  async (req: Request, res: Response) => {
+    const admin = await Admin.findById(req.admin!.id);
+    if (!admin) {
+      res.status(404).json({ error: 'Admin not found' });
+      return;
+    }
+    const ticket = await Ticket.findOneAndUpdate(
+      { ticketId: req.params.ticketId },
+      { assignedTo: admin._id, status: 'IN_PROGRESS' },
+      { new: true },
+    ).populate('assignedTo', 'name email');
+    if (!ticket) {
+      res.status(404).json({ error: 'Ticket not found' });
+      return;
+    }
+    await ticket.populate('customerId', 'customerId phoneNumber country name');
+    res.json({ ticket });
+  },
+);
+
+router.delete(
+  '/:ticketId',
+  authRequired,
+  requirePermission('tickets:close'),
+  audit('TICKET_DELETED', 'ticket'),
+  async (req: Request, res: Response) => {
+    const ticket = await Ticket.findOneAndDelete({ ticketId: req.params.ticketId });
+    if (!ticket) {
+      res.status(404).json({ error: 'Ticket not found' });
+      return;
+    }
+    res.json({ success: true });
   },
 );
 

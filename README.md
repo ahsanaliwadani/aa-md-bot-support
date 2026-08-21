@@ -53,7 +53,7 @@ aa-md-support-bot/
 After SSH into your Oracle Ubuntu VM, run this exact command:
 
 ```bash
-sudo bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" pull --ff-only; fi; cd "$APP"; bash deploy.sh'
+sudo bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" fetch --all --prune; git -C "$APP" reset --hard origin/main; fi; cd "$APP"; bash deploy.sh'
 ```
 
 If you already have a domain pointed to this VM, run the same deploy with `DOMAIN_NAME`:

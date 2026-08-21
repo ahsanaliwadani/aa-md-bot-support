@@ -62,12 +62,14 @@ export default function Settings() {
         </Card>
 
         <Card>
-          <h3 className="text-white font-semibold mb-4">Pricing</h3>
+          <h3 className="text-white font-semibold mb-2">Pricing</h3>
+          <p className="text-sm text-slate-400 mb-4">Change AA MD Bot prices, currencies, labels, and payment instructions without code changes.</p>
           <div className="space-y-4">
             <div>
               <label className="block text-sm text-slate-400 mb-1">Pakistan Price (PKR)</label>
               <div className="flex gap-2">
                 <input type="number" value={settings.pricing.pakistan.amount} onChange={(e) => setSettings({ ...settings, pricing: { ...settings.pricing, pakistan: { ...settings.pricing.pakistan, amount: Number(e.target.value) } } })} className="input" />
+                <input value={settings.pricing.pakistan.currency} onChange={(e) => setSettings({ ...settings, pricing: { ...settings.pricing, pakistan: { ...settings.pricing.pakistan, currency: e.target.value } } })} className="input max-w-[110px]" placeholder="PKR" />
                 <input value={settings.pricing.pakistan.label} onChange={(e) => setSettings({ ...settings, pricing: { ...settings.pricing, pakistan: { ...settings.pricing.pakistan, label: e.target.value } } })} className="input" placeholder="Rs. 1,000" />
               </div>
             </div>
@@ -75,6 +77,7 @@ export default function Settings() {
               <label className="block text-sm text-slate-400 mb-1">International Price (USD)</label>
               <div className="flex gap-2">
                 <input type="number" value={settings.pricing.international.amount} onChange={(e) => setSettings({ ...settings, pricing: { ...settings.pricing, international: { ...settings.pricing.international, amount: Number(e.target.value) } } })} className="input" />
+                <input value={settings.pricing.international.currency} onChange={(e) => setSettings({ ...settings, pricing: { ...settings.pricing, international: { ...settings.pricing.international, currency: e.target.value } } })} className="input max-w-[110px]" placeholder="USD" />
                 <input value={settings.pricing.international.label} onChange={(e) => setSettings({ ...settings, pricing: { ...settings.pricing, international: { ...settings.pricing.international, label: e.target.value } } })} className="input" placeholder="$5 USD" />
               </div>
             </div>

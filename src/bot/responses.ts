@@ -17,7 +17,7 @@ Please select an option:
 9️⃣ Pricing
 🔟 Contact Support
 
-Reply with a number or keyword (e.g. "buy", "activate", "pricing")`;
+Reply with a number or keyword (e.g. "buy", "activate", "pricing", "status")`;
 }
 
 export async function getPricingText(): Promise<string> {
@@ -43,20 +43,24 @@ export async function getBuyFlowText(): Promise<string> {
   const s = await loadSettings();
   return `🔑 ${s.botName} Access Key
 
-🇵🇰 Pakistan: ${s.pricing.pakistan.label}
-🌎 International: ${s.pricing.international.label}
+🇵🇰 Pakistan:
+${s.pricing.pakistan.label}
+
+🌎 International:
+${s.pricing.international.label}
 
 💳 One-Time Payment
-🔑 1 Access Key = 1 WhatsApp Number
+
+No monthly subscription.
+
+1 Access Key = 1 WhatsApp Number.
 
 Please send the WhatsApp number you want to connect.`;
 }
 
 export async function getWelcomeText(): Promise<string> {
   const s = await loadSettings();
-  return `👋 Welcome to ${s.botName} Official Support 🤖
-
-${s.welcomeMessage}`;
+  return `👋 Welcome to ${s.botName} Official Support 🤖`;
 }
 
 export async function getContactText(): Promise<string> {
@@ -114,7 +118,8 @@ export const TICKET_CREATED_TEXT = (ticketId: string, priority: string) =>
 export const REQUEST_RECEIVED_TEXT = (number: string) =>
   `🎉 Your request has been successfully received!
 
-📱 Number to Connect: ${number}
+📱 Number to Connect:
++${number}
 
 Our AA MD Bot Team will contact you very soon with payment details and activation instructions.
 

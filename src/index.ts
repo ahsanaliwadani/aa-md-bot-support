@@ -9,7 +9,6 @@ import { config } from './config';
 import { connectDB, isDBConnected } from './services/database';
 import { ensureOwnerAdmin } from './services/auth';
 import { seedDefaultSettings } from './services/settings';
-import { seedDefaultFAQs } from './services/faq';
 import { botManager } from './bot/BotManager';
 import { logger } from './utils/logger';
 import { apiLimiter } from './middleware/rateLimit';
@@ -19,6 +18,7 @@ import apiRoutes from './routes';
 import healthRoutes from './routes/health';
 import { Server as SocketServer } from 'socket.io';
 import { SystemEvent } from './models';
+import { attachRealtime, emitRealtime } from './services/realtime';
 
 async function bootstrap(): Promise<void> {
   logger.info({ env: config.nodeEnv, port: config.port }, 'Starting AA MD Support Bot...');
@@ -28,7 +28,6 @@ async function bootstrap(): Promise<void> {
 
   // Seed
   await seedDefaultSettings();
-  await seedDefaultFAQs();
   await ensureOwnerAdmin();
 
   // Express
@@ -75,6 +74,8 @@ async function bootstrap(): Promise<void> {
     cors: { origin: allowedOrigins, credentials: true },
   });
 
+  attachRealtime(io);
+
   io.on('connection', (socket) => {
     logger.info('Dashboard client connected via WebSocket');
     socket.on('disconnect', () => logger.info('Dashboard client disconnected'));
@@ -83,13 +84,22 @@ async function bootstrap(): Promise<void> {
   // Broadcast system events
   SystemEvent.watch().on('change', (change) => {
     if (change.operationType === 'insert') {
-      io.emit('system:event', change.fullDocument);
+      emitRealtime('system:event', change.fullDocument);
     }
   });
 
   // Start WhatsApp bot
   botManager.onQR((qr) => {
     logger.info('QR code available for scanning');
+    emitRealtime('whatsapp:status', botManager.getConnectionStatus());
+  });
+
+  botManager.onPairingCode(() => {
+    emitRealtime('whatsapp:status', botManager.getConnectionStatus());
+  });
+
+  botManager.onStatusChange(() => {
+    emitRealtime('whatsapp:status', botManager.getConnectionStatus());
   });
 
   await botManager.start();

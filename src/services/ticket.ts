@@ -1,6 +1,7 @@
 import { Ticket, ITicket, User } from '../models';
 import { generateTicketId } from '../utils/crypto';
 import mongoose from 'mongoose';
+import { emitRealtime } from './realtime';
 
 export async function createTicket(input: {
   customerId: mongoose.Types.ObjectId;
@@ -33,6 +34,7 @@ export async function createTicket(input: {
   });
 
   await User.findByIdAndUpdate(input.customerId, { supportStatus: 'OPEN' });
+  emitRealtime('ticket:new', ticket);
   return ticket;
 }
 
@@ -54,6 +56,7 @@ export async function addReply(
     }
   }
   await ticket.save();
+  emitRealtime('ticket:updated', ticket);
   return ticket;
 }
 
@@ -68,6 +71,7 @@ export async function updateStatus(
   if (status === 'RESOLVED') ticket.resolvedAt = new Date();
   if (status === 'CLOSED') ticket.closedAt = new Date();
   await ticket.save();
+  emitRealtime('ticket:updated', ticket);
 
   if (status === 'RESOLVED' || status === 'CLOSED') {
     await User.findByIdAndUpdate(ticket.customerId, { supportStatus: 'RESOLVED' });

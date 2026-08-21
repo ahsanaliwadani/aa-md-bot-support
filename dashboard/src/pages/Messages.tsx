@@ -20,8 +20,11 @@ export default function Messages() {
 
   useEffect(() => {
     loadConversations();
-    const interval = setInterval(loadConversations, 10000);
-    return () => clearInterval(interval);
+    const stream = new EventSource('/api/dashboard/realtime', { withCredentials: true });
+    const refresh = () => loadConversations();
+    stream.addEventListener('message:new', refresh);
+    stream.addEventListener('ticket:new', refresh);
+    return () => stream.close();
   }, [search]);
 
   useEffect(() => {
@@ -30,10 +33,19 @@ export default function Messages() {
       setMessages(res.messages);
       setUser(res.user);
     });
-    const interval = setInterval(() => {
-      messageApi.getConversation(selectedJid).then((res) => setMessages(res.messages));
-    }, 5000);
-    return () => clearInterval(interval);
+    const stream = new EventSource('/api/dashboard/realtime', { withCredentials: true });
+    const refreshSelected = (event: MessageEvent) => {
+      try {
+        const message = JSON.parse(event.data) as { jid?: string };
+        if (message.jid === selectedJid) {
+          messageApi.getConversation(selectedJid).then((res) => setMessages(res.messages));
+        }
+      } catch {
+        messageApi.getConversation(selectedJid).then((res) => setMessages(res.messages));
+      }
+    };
+    stream.addEventListener('message:new', refreshSelected);
+    return () => stream.close();
   }, [selectedJid]);
 
   useEffect(() => {

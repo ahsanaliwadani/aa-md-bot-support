@@ -4,6 +4,7 @@ import { authRequired, requirePermission } from '../middleware/auth';
 import { isDBConnected } from '../services/database';
 import { getHealthStatus } from '../services/health';
 import { botManager } from '../bot/BotManager';
+import { onRealtimeEvent } from '../services/realtime';
 import { z } from 'zod';
 import { validateBody } from '../middleware/validate';
 
@@ -70,6 +71,29 @@ router.post(
     res.json({ code, phone: req.body.phone });
   },
 );
+
+
+router.get('/realtime', authRequired, requirePermission('dashboard:view'), async (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const send = (event: string, payload: unknown) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  send('ready', { at: new Date().toISOString() });
+  const unsubscribe = onRealtimeEvent(({ event, payload }) => send(event, payload));
+  const heartbeat = setInterval(() => send('heartbeat', { at: new Date().toISOString() }), 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  });
+});
 
 router.get('/events', authRequired, requirePermission('system:read'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);

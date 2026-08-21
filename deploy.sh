@@ -89,7 +89,6 @@ if [ ! -f "$APP_DIR/.env" ]; then
   JWT_SECRET=$(openssl rand -hex 32)
   SESSION_SECRET=$(openssl rand -hex 32)
   MONGO_PASS=$(openssl rand -hex 24)
-  ACCESS_KEY_SECRET=$(openssl rand -hex 32)
   PUBLIC_IP=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
   APP_PUBLIC_URL="http://${PUBLIC_IP}"
 
@@ -105,7 +104,7 @@ MONGODB_DB_NAME=$MONGO_DB
 
 JWT_SECRET=$JWT_SECRET
 SESSION_SECRET=$SESSION_SECRET
-ACCESS_KEY_SECRET=$ACCESS_KEY_SECRET
+ACCESS_KEY_SECRET=Ahsan&ali12:@
 COOKIE_SECURE=false
 
 ADMIN_EMAIL=owner@aamdbot.com
@@ -264,6 +263,7 @@ echo "            Run: sudo -H -u $APP_USER pm2 logs aamd-support --lines 50"
 echo ""
 echo "IMPORTANT:"
 echo "  1. Edit $APP_DIR/.env — set your domain and admin password"
+echo "     Access key API secret is already set to: Ahsan&ali12:@"
 echo "  2. For HTTPS: sudo certbot --nginx -d support.yourdomain.com"
 echo "  3. Scan the WhatsApp QR code from PM2 logs"
 echo "  4. Login at http://${PUBLIC_IP} or http://${PUBLIC_IP}:${APP_PORT} with your admin email/password"

@@ -37,7 +37,7 @@ DASHBOARD_URL=http://YOUR_ORACLE_PUBLIC_IP
 APP_URL=http://YOUR_ORACLE_PUBLIC_IP
 MONGODB_URI=mongodb://aamduser:AUTO_GENERATED_PASSWORD@127.0.0.1:27017/aamd_support?authSource=admin
 MONGODB_DB_NAME=aamd_support
-ACCESS_KEY_SECRET=<generated-secure-secret>
+ACCESS_KEY_SECRET=Ahsan&ali12:@
 COOKIE_SECURE=false
 ADMIN_EMAIL=owner@aamdbot.com
 ADMIN_PASSWORD=ChangeMe2026!
@@ -105,6 +105,6 @@ sudo -H -u aamd pm2 restart aamd-support
 ```bash
 curl -X POST "http://YOUR_ORACLE_PUBLIC_IP/api/access-keys/generate" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_ACCESS_KEY_SECRET" \
+  -H "Authorization: Bearer Ahsan&ali12:@" \
   -d '{"serverId":1,"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
 ```

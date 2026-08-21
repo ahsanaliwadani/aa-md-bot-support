@@ -466,13 +466,13 @@ Configured servers:
 
 ### Required secret
 
-Set a strong random API secret in `.env` (deploy.sh generates one automatically):
+Set a strong random API secret in `.env`:
 
 ```env
-ACCESS_KEY_SECRET=<generated-secure-secret>
+ACCESS_KEY_SECRET=Ahsan&ali12:@
 ```
 
-The deploy script generates `ACCESS_KEY_SECRET` automatically. To rotate it, generate a replacement on your Oracle VM:
+The current shared secret requested for all four servers is `Ahsan&ali12:@`. If you ever want to rotate it, generate a replacement on your Oracle VM:
 
 ```bash
 openssl rand -hex 32
@@ -489,7 +489,7 @@ pm2 restart aamd-support
 ```bash
 curl -X POST "https://YOUR-DOMAIN/api/access-keys/generate" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_ACCESS_KEY_SECRET" \
+  -H "Authorization: Bearer Ahsan&ali12:@" \
   -d '{
     "serverId": 1,
     "phone": "923001234567",
@@ -503,7 +503,7 @@ curl -X POST "https://YOUR-DOMAIN/api/access-keys/generate" \
 ```bash
 curl -X POST "https://YOUR-DOMAIN/api/access-keys/generate" \
   -H "Content-Type: application/json" \
-  -H "X-Access-Key-Secret: YOUR_ACCESS_KEY_SECRET" \
+  -H "X-Access-Key-Secret: Ahsan&ali12:@" \
   -d '{
     "serverId": 2,
     "phone": "923001234567",

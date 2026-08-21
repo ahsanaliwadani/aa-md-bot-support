@@ -21,8 +21,12 @@ export default function WhatsAppConnect() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
+    const stream = new EventSource('/api/dashboard/realtime', { withCredentials: true });
+    stream.addEventListener('whatsapp:status', (event) => {
+      setStatus(JSON.parse(event.data));
+      setLoading(false);
+    });
+    return () => stream.close();
   }, []);
 
   const requestCode = async () => {

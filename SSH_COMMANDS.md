@@ -1,16 +1,18 @@
-# Oracle SSH Deploy Guide — AA MD Support Dashboard
+# SSH commands to deploy AA MD Support Dashboard
 
-Run these commands inside your Oracle Ubuntu VM SSH session.
+Use these commands after you SSH into the Oracle Ubuntu VM.
 
-## Recommended one-command deploy
+## 1) One-command deploy (recommended)
 
 ```bash
 sudo bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" fetch --all --prune; git -C "$APP" reset --hard origin/main; fi; cd "$APP"; bash deploy.sh'
 ```
 
-## Deploy with an existing domain
+The script prints the final dashboard URL, health URL, PM2 name, MongoDB info, admin credential file, and access-key API curl examples.
 
-If your DNS A record already points to the Oracle public IP, replace the domain and run:
+## 2) If you already have a domain pointed to this server
+
+Replace `support.yourdomain.com` with your real domain:
 
 ```bash
 sudo DOMAIN_NAME=support.yourdomain.com bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" fetch --all --prune; git -C "$APP" reset --hard origin/main; fi; cd "$APP"; bash deploy.sh'
@@ -22,49 +24,30 @@ Then enable HTTPS:
 sudo certbot --nginx -d support.yourdomain.com
 ```
 
-## If code is already cloned/uploaded
+## 3) If the repo is already cloned/uploaded
 
 ```bash
 cd /opt/aamd-support
 sudo bash deploy.sh
 ```
 
-With domain:
+Or with domain:
 
 ```bash
 cd /opt/aamd-support
 sudo DOMAIN_NAME=support.yourdomain.com bash deploy.sh
 ```
 
-## What is different from the existing AA-MD-Bot VM deploy?
-
-This support-dashboard deploy uses isolated configuration so it can live on the same VM:
-
-| Resource | Support dashboard value |
-|---|---|
-| App directory | `/opt/aamd-support` |
-| Linux user | `aamd_support` |
-| PM2 process | `aamd-support-dashboard` |
-| Port | `7000` |
-| MongoDB database | `aamd_support` |
-| MongoDB user | `aamd_support_user` |
-| Nginx site | `aamd-support` |
-| Access-key secret | `Ahsan&ali12:@` |
-
-The deploy script creates `/opt/aamd-support/.env` automatically. You do **not** need to manually edit `.env` for first run.
-
-## After deploy: get dashboard login and API examples
+## 4) After deploy: read login and API commands
 
 ```bash
 sudo cat /opt/aamd-support/admin-credentials.txt
 sudo cat /opt/aamd-support/access-key-api-examples.txt
 ```
 
-The dashboard URL is printed at the end of `deploy.sh`. Open it in your browser and manage WhatsApp pairing from **WhatsApp Connect**.
+## 5) Generate an access key manually from SSH
 
-## Generate access key from SSH/API
-
-Header secret method:
+Use the URL printed by deploy. These both work because the deploy script sets `ACCESS_KEY_SECRET=Ahsan&ali12:@` automatically.
 
 ```bash
 curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
@@ -73,8 +56,6 @@ curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
   -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
 ```
 
-Bearer secret method:
-
 ```bash
 curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
   -H "Content-Type: application/json" \
@@ -82,13 +63,11 @@ curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
   -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
 ```
 
-## Useful SSH management commands
+## 6) Useful management commands
 
 ```bash
 sudo -H -u aamd_support pm2 status
 sudo -H -u aamd_support pm2 logs aamd-support-dashboard --lines 100
 curl http://127.0.0.1:7000/health
-sudo nginx -t
-sudo systemctl status mongod --no-pager
 sudo /opt/aamd-support/redeploy.sh
 ```

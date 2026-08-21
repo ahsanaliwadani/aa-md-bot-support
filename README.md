@@ -48,88 +48,82 @@ aa-md-support-bot/
 
 ## Quick Deploy on Oracle Cloud Ubuntu VM
 
-### One-command Oracle deploy
+### SSH command to run on the server
 
-After SSH into your Oracle Ubuntu VM, run this single command:
+After SSH into your Oracle Ubuntu VM, run this exact command:
 
 ```bash
-sudo bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" pull --ff-only; fi; cd "$APP"; bash deploy.sh'
+sudo bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" fetch --all --prune; git -C "$APP" reset --hard origin/main; fi; cd "$APP"; bash deploy.sh'
 ```
 
-This deploy uses app port `7000`, opens firewall port `7000`, and also configures Nginx so the dashboard works at `http://YOUR_ORACLE_PUBLIC_IP`.
+If you already have a domain pointed to this VM, run the same deploy with `DOMAIN_NAME`:
 
-If the project is already uploaded and you are inside the repo, use:
+```bash
+sudo DOMAIN_NAME=support.yourdomain.com bash -lc 'set -e; apt-get update -qq; apt-get install -y -qq git ca-certificates; APP=/opt/aamd-support; REPO=https://github.com/ahsanaliwadani/aa-md-bot-support.git; if [ ! -d "$APP/.git" ]; then rm -rf "$APP"; git clone "$REPO" "$APP"; else git -C "$APP" fetch --all --prune; git -C "$APP" reset --hard origin/main; fi; cd "$APP"; bash deploy.sh'
+```
+
+If the project is already cloned/uploaded and you are inside the repo, use:
 
 ```bash
 sudo bash deploy.sh
 ```
 
-See `ORACLE_DEPLOY.md` for the full Oracle checklist, port `7000` links, WhatsApp pairing command, HTTPS setup, and access-key curl command.
+### What deploy creates automatically
 
+The script automatically installs system packages, Node.js 20, PM2, local MongoDB, Nginx, Certbot/UFW helpers, builds the backend/dashboard, starts PM2, configures Nginx, opens firewall rules, runs health checks, and prints the final dashboard URL.
 
-### 1. Upload the project to your VM
+It uses isolated names so it can run beside an existing AA-MD-Bot deployment on the same Oracle VM:
 
-```bash
-# Option A: Clone from git
-git clone <your-repo-url> /opt/aamd-support
+| Item | Value |
+|------|-------|
+| App directory | `/opt/aamd-support` |
+| Linux user | `aamd_support` |
+| PM2 app | `aamd-support-dashboard` |
+| App port | `7000` |
+| MongoDB database | `aamd_support` |
+| MongoDB user | `aamd_support_user` |
+| Nginx site | `aamd-support` |
+| Access key API secret | `Ahsan&ali12:@` |
 
-# Option B: SCP upload
-scp -r aa-md-support-bot/ ubuntu@YOUR_VM_IP:~/
-```
+### After deploy
 
-### 2. Run the deployment script
-
-```bash
-cd aa-md-support-bot
-chmod +x deploy.sh
-sudo ./deploy.sh
-```
-
-The script automatically:
-- Installs Node.js 20 LTS, PM2, Docker, Nginx
-- Starts MongoDB in a Docker container (bound to 127.0.0.1 only)
-- Generates secure secrets for `.env`
-- Installs and builds backend + dashboard
-- Configures PM2 for auto-restart
-- Configures Nginx as reverse proxy
-- Sets up firewall (ports 22, 80, 443 only)
-- Runs health checks
-
-### 3. Edit .env
+Read the generated dashboard login and API examples:
 
 ```bash
-sudo nano /opt/aamd-support/.env
+sudo cat /opt/aamd-support/admin-credentials.txt
+sudo cat /opt/aamd-support/access-key-api-examples.txt
 ```
 
-Set:
-- `DASHBOARD_URL` and `APP_URL` to your domain or IP
-- `ADMIN_EMAIL` and `ADMIN_PASSWORD` to your preferred login
-- `COOKIE_SECURE=true` if using HTTPS
+Open the printed dashboard URL in your browser. Manage WhatsApp connection from **WhatsApp Connect** in the dashboard, then manage customers, messages, tickets, payments, access keys, and settings there.
 
-### 4. Pair WhatsApp
+### Access key API command
+
+Both secret styles work after deploy because `ACCESS_KEY_SECRET=Ahsan&ali12:@` is configured automatically:
 
 ```bash
-pm2 logs aamd-support --lines 50
+curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
+  -H "Content-Type: application/json" \
+  -H "X-Access-Key-Secret: Ahsan&ali12:@" \
+  -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
 ```
 
-Scan the QR code with your WhatsApp phone (the support number):
-1. Open WhatsApp on the support phone
-2. Settings → Linked Devices → Link a Device
-3. Scan the QR code shown in PM2 logs
-
-Alternatively, use pairing code (for phone-number login):
 ```bash
-# The bot logs will show pairing instructions if QR is not working
+curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer Ahsan&ali12:@" \
+  -d '{"phone":"923001234567","expiresInDays":30,"connectionId":"default"}'
 ```
 
-### 5. Access the Dashboard
+### Useful server commands
 
-Open in browser:
-```
-http://YOUR_VM_IP
+```bash
+sudo -H -u aamd_support pm2 status
+sudo -H -u aamd_support pm2 logs aamd-support-dashboard --lines 100
+curl http://127.0.0.1:7000/health
+sudo /opt/aamd-support/redeploy.sh
 ```
 
-Login with your admin email and password.
+See `SSH_COMMANDS.md` and `ORACLE_DEPLOY.md` for the copy/paste SSH commands and full Oracle checklist.
 
 ## WhatsApp Bot Commands
 

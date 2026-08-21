@@ -21,6 +21,7 @@ export class BotManager {
   private maxReconnect = 10;
   private qrCallback: ((qr: string) => void) | null = null;
   private pairingCodeCallback: ((code: string) => void) | null = null;
+  private statusCallback: (() => void) | null = null;
   private latestQr: string | null = null;
   private latestPairingCode: string | null = null;
   private lastConnectionUpdateAt: Date | null = null;
@@ -44,6 +45,14 @@ export class BotManager {
 
   onPairingCode(callback: (code: string) => void): void {
     this.pairingCodeCallback = callback;
+  }
+
+  onStatusChange(callback: () => void): void {
+    this.statusCallback = callback;
+  }
+
+  private emitStatusChange(): void {
+    if (this.statusCallback) this.statusCallback();
   }
 
   async start(): Promise<void> {
@@ -78,6 +87,7 @@ export class BotManager {
           console.log(code);
         });
         if (this.qrCallback) this.qrCallback(qr);
+        this.emitStatusChange();
       }
 
       if (connection === 'open') {
@@ -87,6 +97,8 @@ export class BotManager {
         this.lastConnectionUpdateAt = new Date();
         this.reconnectAttempts = 0;
         logger.info('WhatsApp connected');
+        this.emitStatusChange();
+
         await SystemEvent.create({
           type: 'BOT_CONNECTED',
           severity: 'INFO',
@@ -102,6 +114,8 @@ export class BotManager {
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
         logger.warn({ statusCode, shouldReconnect }, 'WhatsApp disconnected');
+
+        this.emitStatusChange();
 
         await SystemEvent.create({
           type: 'BOT_DISCONNECTED',
@@ -157,6 +171,7 @@ export class BotManager {
         this.lastConnectionUpdateAt = new Date();
       }
       if (code && this.pairingCodeCallback) this.pairingCodeCallback(code);
+      if (code) this.emitStatusChange();
       return code;
     } catch (err) {
       logger.error({ err }, 'Failed to request pairing code');
@@ -176,6 +191,7 @@ export class BotManager {
       this.latestQr = null;
       this.latestPairingCode = null;
       this.lastConnectionUpdateAt = new Date();
+      this.emitStatusChange();
     }
   }
 }

@@ -9,10 +9,20 @@ export async function logMessage(input: {
   ticketId?: string;
   mediaUrl?: string;
 }): Promise<void> {
+  const body = input.body.slice(0, 5000);
+  const recentDuplicate = await Message.findOne({
+    jid: input.jid,
+    direction: input.direction,
+    body,
+    at: { $gte: new Date(Date.now() - 5000) },
+  }).sort({ at: -1 });
+
+  if (recentDuplicate) return;
+
   const message = await Message.create({
     jid: input.jid,
     direction: input.direction,
-    body: input.body.slice(0, 5000),
+    body,
     messageType: input.messageType || 'text',
     ticketId: input.ticketId,
     mediaUrl: input.mediaUrl,

@@ -6,25 +6,36 @@ import { validateQuery, validateBody } from '../middleware/validate';
 import { paginationSchema } from '../utils/validation';
 import { z } from 'zod';
 import { audit } from '../middleware/audit';
-import { Admin } from '../models';
+import { AccessKey, Admin } from '../models';
 
 const router = Router();
 
-router.get(
-  '/',
-  authRequired,
-  requirePermission('keys:read'),
-  validateQuery(paginationSchema),
-  async (req: Request, res: Response) => {
-    const result = await accessKeyService.searchKeys({
-      search: req.query.search as string,
-      status: req.query.status as string,
-      page: Number(req.query.page),
-      limit: Number(req.query.limit),
-    });
-    res.json(result);
-  },
-);
+router.get('/', async (req: Request, res: Response, next) => {
+  if (requestHasEndpointSecret(req)) {
+    try {
+      const id = req.query.id as string;
+      if (id) return res.json({ ok: true, record: await serializeAccessKey(id) });
+      const result = await accessKeyService.searchKeys({
+        search: (req.query.search as string) || '',
+        status: req.query.status as string,
+        page: Number(req.query.page) || 1,
+        limit: Math.min(Number(req.query.limit) || 100, 100),
+      });
+      return res.json({ ok: true, keys: result.items });
+    } catch (err) {
+      return res.status(404).json({ ok: false, error: (err as Error).message });
+    }
+  }
+  return next();
+}, authRequired, requirePermission('keys:read'), validateQuery(paginationSchema), async (req: Request, res: Response) => {
+  const result = await accessKeyService.searchKeys({
+    search: req.query.search as string,
+    status: req.query.status as string,
+    page: Number(req.query.page),
+    limit: Number(req.query.limit),
+  });
+  res.json(result);
+});
 
 const generateSchema = z.object({
   phone: z.string().min(7).max(20).optional(),
@@ -33,13 +44,106 @@ const generateSchema = z.object({
   serverId: z.number().int().min(1).max(4).default(1),
 });
 
-function requestHasAccessKeySecret(req: Request): boolean {
-  if (!config.accessKeySecret) return false;
+function hasHeaderSecret(req: Request, secret: string): boolean {
+  if (!secret) return false;
   const auth = req.get('authorization') || '';
   const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   const alternate = req.get('x-access-key-secret') || '';
-  return bearer === config.accessKeySecret || alternate === config.accessKeySecret;
+  return bearer === secret || alternate === secret;
 }
+
+function requestHasAccessKeySecret(req: Request): boolean {
+  return hasHeaderSecret(req, config.accessKeySecret);
+}
+
+function requestHasEndpointSecret(req: Request): boolean {
+  return hasHeaderSecret(req, config.accessKeyEndpointSecret);
+}
+
+function requireSecureAccessKeyEndpoint(req: Request, res: Response): boolean {
+  if (!config.accessKeyEndpointSecret) {
+    res.status(403).json({ ok: false, error: 'ACCESS_KEY_ENDPOINT_SECRET is not configured' });
+    return false;
+  }
+  if (!requestHasEndpointSecret(req)) {
+    res.status(401).json({ ok: false, error: 'Unauthorized' });
+    return false;
+  }
+  return true;
+}
+
+
+async function serializeAccessKey(id: string) {
+  const key = await AccessKey.findOne({ keyId: id })
+    .populate('customerId', 'customerId phoneNumber country')
+    .populate('createdBy', 'name email');
+  if (!key) throw new Error('Access key not found');
+  return key;
+}
+
+
+router.get('/history', async (req: Request, res: Response) => {
+  if (!requireSecureAccessKeyEndpoint(req, res)) return;
+  try {
+    const id = req.query.id as string;
+    if (!id) throw new Error('Access key id is required');
+    const key = await AccessKey.findOne({ keyId: id }).select('keyId history');
+    if (!key) throw new Error('Access key not found');
+    res.json({ ok: true, history: key.history });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+router.post('/action', async (req: Request, res: Response) => {
+  if (!requireSecureAccessKeyEndpoint(req, res)) return;
+  try {
+    const action = String(req.body.action || '').toLowerCase();
+    const id = req.body.id || req.body.keyId;
+    const phone = req.body.phone;
+    const search = req.body.search || '';
+    const createdBy = String(req.body.createdBy || 'secure-api').slice(0, 64);
+
+    if (action === 'generate') {
+      const result = await accessKeyService.generateKey({
+        phone,
+        expiresInDays: req.body.expiresInDays,
+        connectionId: req.body.connectionId || 'default',
+        serverId: req.body.serverId,
+        activate: Boolean(phone),
+      });
+      return res.json({ ok: true, accessKey: result.plainKey, record: result });
+    }
+
+    if (action === 'search') {
+      const result = await accessKeyService.searchKeys({ search: search || phone || id || '', page: 1, limit: 100 });
+      return res.json({ ok: true, keys: result.items });
+    }
+
+    if (!id) throw new Error('Access key id is required');
+    if (action === 'view') return res.json({ ok: true, record: await serializeAccessKey(id) });
+    if (action === 'history') {
+      const key = await AccessKey.findOne({ keyId: id }).select('keyId history');
+      if (!key) throw new Error('Access key not found');
+      return res.json({ ok: true, history: key.history });
+    }
+    if (action === 'assign') {
+      const key = await AccessKey.findOne({ keyId: id });
+      if (!key) throw new Error('Access key not found');
+      key.assignedNumber = String(phone || '').replace(/[^0-9]/g, '');
+      key.history.push({ action: 'KEY_ASSIGNED', at: new Date(), detail: `Assigned through ${createdBy}` });
+      await key.save();
+      return res.json({ ok: true, record: key });
+    }
+    if (action === 'activate') return res.json({ ok: true, record: await accessKeyService.activateKey(id) });
+    if (action === 'suspend' || action === 'disable') return res.json({ ok: true, record: await accessKeyService.suspendKey(id, `Suspended through ${createdBy}`) });
+    if (action === 'revoke') return res.json({ ok: true, record: await accessKeyService.revokeKey(id, `Revoked through ${createdBy}`) });
+
+    throw new Error('Unsupported action. Use generate, search, view, assign, activate, suspend, revoke, or history.');
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
 
 router.get('/servers', authRequired, requirePermission('keys:read'), (_req: Request, res: Response) => {
   res.json({ items: accessKeyService.ACCESS_KEY_SERVERS });

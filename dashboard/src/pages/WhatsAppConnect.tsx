@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { dashboardApi, WhatsAppStatus } from '../lib/types';
 import { Card, Toast } from '../components/ui';
-import { Copy, RefreshCw, Smartphone, Wifi } from 'lucide-react';
+import { Copy, QrCode, RefreshCw, Smartphone, Wifi } from 'lucide-react';
 
 export default function WhatsAppConnect() {
   const [status, setStatus] = useState<WhatsAppStatus | null>(null);
@@ -44,6 +44,8 @@ export default function WhatsAppConnect() {
     navigator.clipboard.writeText(value);
     showToast('Copied to clipboard');
   };
+
+  const qrImageUrl = status?.qr ? `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(status.qr)}` : '';
 
   if (loading || !status) return <div className="text-slate-400 animate-pulse">Loading WhatsApp connection...</div>;
 
@@ -89,13 +91,21 @@ export default function WhatsAppConnect() {
           </Card>
 
           <Card>
-            <h2 className="text-lg font-semibold text-white mb-2">QR / Manual Fallback</h2>
-            <p className="text-sm text-slate-400 mb-4">If pairing code is unavailable, open PM2 logs on the server and scan the QR shown there.</p>
-            <code className="block p-3 rounded-lg bg-surface-900 text-primary-400 text-sm whitespace-pre-wrap">sudo -H -u aamd pm2 logs aamd-support --lines 50</code>
-            {status.qr && (
-              <div className="mt-4">
-                <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Latest raw QR payload</div>
-                <textarea readOnly value={status.qr} className="input min-h-[120px] font-mono text-xs" />
+            <h2 className="text-lg font-semibold text-white mb-2 flex items-center gap-2"><QrCode className="w-5 h-5 text-primary-400" /> Connect with QR Code</h2>
+            <p className="text-sm text-slate-400 mb-4">Scan this QR directly from WhatsApp Linked Devices. No server logs are needed.</p>
+            {status.qr ? (
+              <div className="space-y-4">
+                <div className="inline-block rounded-xl bg-white p-4">
+                  <img src={qrImageUrl} alt="WhatsApp login QR code" className="h-[280px] w-[280px]" />
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <button onClick={() => copy(status.qr!)} className="btn-secondary text-xs"><Copy className="w-4 h-4 inline" /> Copy QR Payload</button>
+                  <button onClick={load} className="btn-secondary text-xs"><RefreshCw className="w-4 h-4 inline" /> Refresh QR</button>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-slate-800 bg-surface-900 p-4 text-sm text-slate-400">
+                QR is not available yet. Click Refresh, or use the pairing-code option on the left.
               </div>
             )}
           </Card>

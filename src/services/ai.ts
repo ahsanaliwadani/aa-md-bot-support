@@ -79,6 +79,41 @@ function fallback(message: string): string {
   return 'Please describe what happened, what you expected, and any error message or screenshot so I can help you properly.';
 }
 
+function fallbackUrdu(message: string): string {
+  const { category } = classify(message);
+  if (category === 'Access Key') return 'Please exact access-key error bhej dein aur confirm karein ke key pehle kisi doosre WhatsApp number par activate to nahi hui.';
+  if (category === 'Connection') return 'Internet check karein, purana linked device remove karein, naya QR scan karein aur bot restart karein. Kaunsa step fail ho raha hai aur kya error aa raha hai?';
+  if (category === 'Bot Offline') return 'Affected command, aap ko kya result expected tha, aur exact error ya screenshot bhej dein.';
+  return 'Meherbani karke masla detail mein batayein: kya hua, aap kya expect kar rahe thay, aur koi error ya screenshot ho to bhej dein.';
+}
+
+function prefersUrdu(message: string): boolean {
+  return /[\u0600-\u06ff]/.test(message)
+    || /\b(kya|kia|mujhe|mujhy|mera|meri|apna|apni|paisa|paise|bhej|karna|kardo|kaise|nahi|hain|hai|kr|acha|theek)\b/i.test(message);
+}
+
+function configuredPaymentReply(settings: Awaited<ReturnType<typeof loadSettings>> | null, urdu: boolean): string {
+  const jazzCash = settings?.jazzCash;
+  if (jazzCash?.enabled && jazzCash.accountNumber) {
+    return urdu
+      ? `📲 *JazzCash Payment Details*\n\nAccount Title: ${jazzCash.accountTitle || 'Not specified'}\nAccount Number: ${jazzCash.accountNumber}\n\n${jazzCash.instructions}\n\nPayment ke baad isi chat mein screenshot ya transaction ID bhej dein. Apna PIN, OTP, ya password kabhi share na karein.`
+      : `📲 *JazzCash Payment Details*\n\nAccount Title: ${jazzCash.accountTitle || 'Not specified'}\nAccount Number: ${jazzCash.accountNumber}\n\n${jazzCash.instructions}\n\nAfter payment, send the screenshot or transaction ID in this chat. Never share your PIN, OTP, or password.`;
+  }
+  const instructions = settings?.paymentInstructions || 'Payment details are not configured yet. Please contact support.';
+  return urdu
+    ? `💳 *Payment Information*\n\n${instructions}\n\nPayment proof isi chat mein bhej dein.`
+    : `💳 *Payment Information*\n\n${instructions}\n\nPlease send your payment proof in this chat.`;
+}
+
+function configuredPricingReply(settings: Awaited<ReturnType<typeof loadSettings>> | null, urdu: boolean): string {
+  if (!settings) return urdu ? 'Prices is waqt load nahi ho rahe. Meherbani karke thori dair baad dobara try karein.' : 'Prices are temporarily unavailable. Please try again shortly.';
+  const pakistan = settings.pricing.pakistan;
+  const international = settings.pricing.international;
+  return urdu
+    ? `💰 *Access Key Price*\n\n🇵🇰 Pakistan: ${pakistan.label}\n🌎 International: ${international.label}\n\nYe one-time payment hai; monthly subscription nahi. 1 Access Key = 1 WhatsApp number.`
+    : `💰 *Access Key Pricing*\n\n🇵🇰 Pakistan: ${pakistan.label}\n🌎 International: ${international.label}\n\nThis is a one-time payment with no monthly subscription. 1 Access Key = 1 WhatsApp number.`;
+}
+
 async function requestProvider(endpoint: string, parameter: string, prompt: string): Promise<string | null> {
   const url = new URL(endpoint);
   url.searchParams.set(parameter, prompt.slice(0, 5000));
@@ -109,12 +144,32 @@ export async function askSupportAi(jid: string, message: string, context = ''): 
   if (isGreeting(message)) histories.delete(jid);
   const prior = historyFor(jid).slice(-6).map((turn) => `${turn.role === 'user' ? 'Customer' : 'Assistant'}: ${turn.content}`).join('\n');
   const settings = await loadSettings().catch(() => null);
+  const urdu = prefersUrdu(message);
+  const classification = classify(message);
+  const isPaymentRequest = classification.category === 'Payment' && /payment|pay|jazz\s*cash|account|transfer|proof|receipt|transaction|paisa|paise|ادا|پیسے/i.test(message);
+  const isPricingRequest = /\b(price|pricing|cost|how much|rate|rates|kitne|kitna|qeemat|قیمت)\b/i.test(message);
+  remember(jid, 'user', message);
+  // Payment credentials must never be sent to a third-party AI provider or
+  // depend on a provider's response. Always use dashboard configuration.
+  if (isPaymentRequest) {
+    const reply = configuredPaymentReply(settings, urdu);
+    remember(jid, 'assistant', reply);
+    return { reply, ...classification };
+  }
+  // Prices are operational data, so always take them directly from Settings.
+  // This prevents a provider from returning stale or invented amounts.
+  if (isPricingRequest) {
+    const reply = configuredPricingReply(settings, urdu);
+    remember(jid, 'assistant', reply);
+    return { reply, ...classification };
+  }
   const paymentContext = settings?.jazzCash.enabled && settings.jazzCash.accountNumber
     ? `For Pakistan payments, JazzCash is enabled: account title ${settings.jazzCash.accountTitle || 'not specified'}, account number ${settings.jazzCash.accountNumber}; instruction: ${settings.jazzCash.instructions}. Only share this when the customer is asking about payment or buying from Pakistan; ask them to send proof in this chat afterward.`
     : settings?.paymentInstructions || 'none';
-  const prompt = `You are AA MD Bot's real-time WhatsApp support assistant. Reply only in complete, natural English. Answer the customer's actual latest message directly; never return a generic canned acknowledgement, a command menu, JSON, or API errors. Use short WhatsApp-friendly paragraphs and bullets when useful. Give troubleshooting before suggesting support. Do not claim that a payment, account, or key changed unless confirmed. Payment guidance: ${paymentContext}. Relevant support knowledge: ${context || 'none'}. Recent conversation: ${prior || 'none'}. Latest customer message: ${message}`;
-  remember(jid, 'user', message);
-
+  const languageInstruction = urdu
+    ? 'Reply in the same Roman Urdu or Urdu style used by the customer. Do not switch to English unless the customer used English.'
+    : 'Reply in the same language as the customer.';
+  const prompt = `You are AA MD Bot's real-time WhatsApp support assistant. ${languageInstruction} Answer the customer's actual latest message directly; never return a generic canned acknowledgement, a command menu, JSON, or API errors. Use short WhatsApp-friendly paragraphs and bullets when useful. Give troubleshooting before suggesting support. Do not claim that a payment, account, or key changed unless confirmed. For payment account details, use ONLY the exact Payment guidance below; never invent, substitute, or mention another account, wallet, or number. Payment guidance: ${paymentContext}. Relevant support knowledge: ${context || 'none'}. Recent conversation: ${prior || 'none'}. Latest customer message: ${message}`;
   const answer = await firstSuccessful([
     requestProvider('https://apis.davidcyriltech.my.id/ai/gpt-4o', 'prompt', prompt),
     requestProvider('https://apis.davidcyriltech.my.id/ai/claude-haiku-45', 'prompt', prompt),
@@ -127,8 +182,8 @@ export async function askSupportAi(jid: string, message: string, context = ''): 
     requestProvider('https://api-abztech.zone.id/ai/gemini', 'message', prompt),
     requestProvider('https://ab-llama-ai.abrahamdw882.workers.dev/', 'q', prompt),
   ]);
-  const reply = cleanMarkdown(answer || fallback(message));
+  const reply = cleanMarkdown(answer || (urdu ? fallbackUrdu(message) : fallback(message)));
   if (!answer) logger.warn({ jid: jid.slice(-6) }, 'All support AI providers failed; using safe local fallback');
   remember(jid, 'assistant', reply);
-  return { reply, ...classify(message) };
+  return { reply, ...classification };
 }

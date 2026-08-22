@@ -14,6 +14,10 @@ import messageRoutes from './messages';
 
 const router = Router();
 
+router.get('/', (_req, res) => {
+  res.json({ ok: true, service: 'AA MD Bot access-key API' });
+});
+
 router.use('/auth', authRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/customers', customerRoutes);

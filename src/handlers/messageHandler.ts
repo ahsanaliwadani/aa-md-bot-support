@@ -2,7 +2,7 @@ import { WASocket, WAMessage, downloadMediaMessage } from '@whiskeysockets/baile
 import { jidToPhone, countryFromPhone, isIndividualWhatsAppJid } from '../utils/phone';
 import { parseIntent, Intent } from './intentParser';
 import { conversationService, userService, accessKeyService, ticketService, paymentService, faqService, messageService, loadSettings } from '../services';
-import { askSupportAi } from '../services/ai';
+import { askSupportAi, SupportAiResult } from '../services/ai';
 import { ConversationStateName } from '../models';
 import { AccessKey, Payment, Ticket } from '../models';
 import { logger } from '../utils/logger';
@@ -212,7 +212,8 @@ async function handleIdleMessage(sock: WASocket, jid: string, parsed: ReturnType
       await send(sock, jid, await getPricingText());
       break;
     case 'CONTACT':
-      await send(sock, jid, `${await askSupportAi(parsed.raw)}\n\nKya aap human support ticket banana chahte hain? Reply YES for ticket, or NO/menu if your issue is solved.`);
+      const ai = await askSupportAi(jid, parsed.raw);
+      await send(sock, jid, `${ai.reply}\n\nIf you still need a support specialist, reply YES. Otherwise reply NO or type menu.`);
       await conversationService.setState(jid, 'WAITING_FOR_CONTACT_CONFIRM', { originalMessage: parsed.raw });
       break;
     case 'TICKET_STATUS': {
@@ -237,25 +238,13 @@ async function handleIdleMessage(sock: WASocket, jid: string, parsed: ReturnType
     }
     case 'FAQ_MATCH': {
       const faq = await faqService.findFAQMatch(parsed.raw);
-      if (faq) {
-        await send(sock, jid, `❓ ${faq.question}\n\n${faq.answer}\n\nType "menu" for more options.`);
-      } else {
-        await send(sock, jid, await askSupportAi(parsed.raw));
-      }
+      const ai = await askSupportAi(jid, parsed.raw, faq ? `Relevant knowledge base: ${faq.question} — ${faq.answer}` : '');
+      await send(sock, jid, ai.reply);
       break;
     }
     default: {
-      // Try FAQ match, then route existing support tickets, then use AI without opening unnecessary tickets.
+      // Knowledge-base matches inform the AI; they never replace a real-time answer.
       const faq = await faqService.findFAQMatch(parsed.raw);
-      if (faq) {
-        await send(sock, jid, `❓ ${faq.question}
-
-${faq.answer}
-
-Type "menu" for more options.`);
-        return;
-      }
-
       const user = await userService.findOrCreateUser(jid);
       const openTicket = await Ticket.findOne({
         customerId: user._id,
@@ -263,16 +252,20 @@ Type "menu" for more options.`);
       }).sort({ updatedAt: -1 });
       if (openTicket) {
         await ticketService.addReply(openTicket.ticketId, 'USER', parsed.raw.slice(0, 2000));
-        await send(sock, jid, `✅ Aap ka message ticket ${openTicket.ticketId} mein add ho gaya hai. Team jald response karegi.
+        await send(sock, jid, `Your message has been added to ticket ${openTicket.ticketId}. A support specialist will review it and reply here.
 
-Agar bot options chahiye hon to “menu” likhein.`);
+Type "menu" if you need a different option.`);
         return;
       }
 
-      const aiAnswer = await askSupportAi(parsed.raw);
-      await send(sock, jid, `${aiAnswer}
+      const ai = await askSupportAi(jid, parsed.raw, faq ? `Relevant knowledge base: ${faq.question} — ${faq.answer}` : '');
+      if (ai.needsHuman) {
+        await offerOrCreateAiEscalation(sock, jid, parsed.raw, ai);
+        return;
+      }
+      await send(sock, jid, `${ai.reply}
 
-Agar human team ki zaroorat ho to “contact” likhein. Type “menu” for support options.`);
+If this does not resolve the issue, reply "contact" to reach a support specialist. Type "menu" for options.`);
     }
   }
 }
@@ -319,10 +312,54 @@ async function handleStatefulMessage(
     case 'WAITING_FOR_CONTACT_CONFIRM':
       await handleContactConfirm(sock, jid, parsed, rawText, data);
       break;
+    case 'WAITING_FOR_AI_ESCALATION':
+      await handleAiEscalationConfirmation(sock, jid, parsed, rawText, data);
+      break;
     default:
       await conversationService.resetState(jid);
       await send(sock, jid, await getMenuText());
   }
+}
+
+async function offerOrCreateAiEscalation(sock: WASocket, jid: string, message: string, ai: SupportAiResult): Promise<void> {
+  await send(sock, jid, `${ai.reply}
+
+This needs account-level review. Reply YES to create a support ticket, or NO to continue troubleshooting with the AI.`);
+  await conversationService.setState(jid, 'WAITING_FOR_AI_ESCALATION', { originalMessage: message.slice(0, 2000), category: ai.category, priority: ai.priority });
+}
+
+async function handleAiEscalationConfirmation(sock: WASocket, jid: string, parsed: ReturnType<typeof parseIntent>, raw: string, data: Record<string, unknown>): Promise<void> {
+  if (parsed.intent === 'CONFIRM_NO' || parsed.intent === 'MENU') {
+    await conversationService.resetState(jid);
+    await send(sock, jid, parsed.intent === 'MENU' ? await getMenuText() : 'Understood. Please send any additional details and I will continue troubleshooting.');
+    return;
+  }
+  if (parsed.intent !== 'CONFIRM_YES') {
+    const ai = await askSupportAi(jid, raw, 'The customer was offered escalation but sent more information. Continue troubleshooting unless a human is essential.');
+    await send(sock, jid, `${ai.reply}
+
+Reply YES if you would like me to create a support ticket, or NO to continue with AI assistance.`);
+    return;
+  }
+  const user = await userService.findOrCreateUser(jid);
+  const existing = await Ticket.findOne({ customerId: user._id, status: { $in: ['OPEN', 'IN_PROGRESS', 'WAITING_FOR_USER'] } }).sort({ updatedAt: -1 });
+  if (existing) {
+    await ticketService.addReply(existing.ticketId, 'USER', String(data.originalMessage || raw).slice(0, 2000));
+    await conversationService.resetState(jid);
+    await send(sock, jid, `Your message was added to existing ticket ${existing.ticketId}. A support specialist will reply here.`);
+    return;
+  }
+  const ticket = await ticketService.createTicket({ customerId: user._id, jid, phoneNumber: user.phoneNumber, category: String(data.category || 'Other'), subject: 'AI escalation requires account review', description: String(data.originalMessage || raw).slice(0, 2000), priority: (data.priority as 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT') || 'NORMAL' });
+  await conversationService.resetState(jid);
+  await send(sock, jid, `Your support ticket has been created.
+
+🎫 Ticket: ${ticket.ticketId}
+
+A support specialist will review the details and reply here. Please wait for the team response.`);
+  await notifyAdmins(sock, jid, `AI ESCALATION
+Ticket: ${ticket.ticketId}
+Category: ${ticket.category}
+Priority: ${ticket.priority}`);
 }
 
 async function handleContactConfirm(
@@ -334,12 +371,13 @@ async function handleContactConfirm(
 ): Promise<void> {
   if (parsed.intent === 'CONFIRM_NO' || parsed.intent === 'MENU') {
     await conversationService.resetState(jid);
-    await send(sock, jid, 'Theek hai 😊 Agar dobara help chahiye ho to apna issue likhein ya “menu” send karein.');
+    await send(sock, jid, 'No problem. Send a message whenever you need help, or type "menu" to see the available options.');
     return;
   }
 
   if (parsed.intent !== 'CONFIRM_YES') {
-    await send(sock, jid, `${await askSupportAi(raw)}\n\nAgar ab bhi human support chahiye ho to YES reply karein. Agar issue solve ho gaya ho to NO reply karein.`);
+    const ai = await askSupportAi(jid, raw);
+    await send(sock, jid, `${ai.reply}\n\nIf you still need a support specialist, reply YES. If this resolves the issue, reply NO.`);
     return;
   }
 
@@ -353,7 +391,7 @@ async function handleContactConfirm(
   if (existing) {
     await ticketService.addReply(existing.ticketId, 'USER', (data.originalMessage as string || raw).slice(0, 2000));
     await conversationService.resetState(jid);
-    await send(sock, jid, `✅ Aap ka support ticket already open hai: ${existing.ticketId}\n\nTeam aap ko jald response karegi.`);
+    await send(sock, jid, `You already have an open support ticket: ${existing.ticketId}.\n\nA support specialist will review your messages and reply here.`);
     return;
   }
 
@@ -368,7 +406,7 @@ async function handleContactConfirm(
   });
 
   await conversationService.resetState(jid);
-  await send(sock, jid, `✅ Aap ka help ticket create ho gaya hai.\n\n🎫 Ticket: ${ticket.ticketId}\n\nHamari team aap ko jald response karegi.`);
+  await send(sock, jid, `Your support ticket has been created.\n\n🎫 Ticket: ${ticket.ticketId}\n\nA support specialist will review it and reply here. Please keep this ticket ID for reference.`);
 }
 
 async function handleWaitingForNumber(sock: WASocket, jid: string, parsed: ReturnType<typeof parseIntent>, raw: string): Promise<void> {
@@ -421,7 +459,7 @@ Amount: ${pricing.label}
 Country: ${country}
 Payment Request: ${payment.paymentRequestId}
 
-Admin payment approval ke baad access key issue hogi.`);
+Your payment will be reviewed by an administrator. After approval, your access key can be issued.`);
 
     // Admin notification
     await notifyAdmins(sock, jid, `🚨 NEW ACCESS KEY REQUEST\n\nNumber: +${number}\nCountry: ${country}\nRequest ID: ${payment.paymentRequestId}\nStatus: PAYMENT PENDING\n\nOpen Dashboard: ${settings.botName} Dashboard`);
@@ -513,22 +551,13 @@ Only admin approval can issue or activate an Access Key.`,
 async function handleIssueDescription(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {
   const category = (data.category as string) || 'Other';
   const subject = (data.subject as string) || 'Support Issue';
-  const user = await userService.findOrCreateUser(jid);
-
-  const ticket = await ticketService.createTicket({
-    customerId: user._id,
-    jid,
-    phoneNumber: user.phoneNumber,
-    category,
-    subject,
-    description: raw.slice(0, 2000),
-    priority: 'NORMAL',
-  });
-
+  const ai = await askSupportAi(jid, raw, `Issue category: ${category}. Subject: ${subject}. Try to resolve it before escalation.`);
+  if (ai.needsHuman) {
+    await offerOrCreateAiEscalation(sock, jid, raw, { ...ai, category: category === 'Payment' ? 'Payment' : category === 'Access Key' ? 'Access Key' : ai.category });
+    return;
+  }
   await conversationService.resetState(jid);
-  await send(sock, jid, TICKET_CREATED_TEXT(ticket.ticketId, ticket.priority));
-
-  await notifyAdmins(sock, jid, `🚨 NEW TICKET\n\nTicket: ${ticket.ticketId}\nCategory: ${category}\nSubject: ${subject}\nNumber: +${user.phoneNumber}\n\nOpen Dashboard: ${(await loadSettings()).botName} Dashboard`);
+  await send(sock, jid, `${ai.reply}\n\nIf this does not solve the issue, reply "contact" to create a support ticket.`);
 }
 
 async function handleBugDescription(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {
@@ -549,49 +578,29 @@ async function handleBotFeature(sock: WASocket, jid: string, raw: string, data: 
 
 async function handleBotError(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {
   const category = (data.category as string) || 'Bot Offline';
-  const user = await userService.findOrCreateUser(jid);
   const description = [
     `Issue: ${(data.description as string) || 'Not provided'}`,
     `Affected command/feature: ${(data.affectedFeature as string) || 'Not provided'}`,
     `Error/screenshot note: ${raw.slice(0, 1000)}`,
   ].join('\n');
-
-  const ticket = await ticketService.createTicket({
-    customerId: user._id,
-    jid,
-    phoneNumber: user.phoneNumber,
-    category,
-    subject: 'Bot Not Working Report',
-    description,
-    priority: 'HIGH',
-  });
-
+  const ai = await askSupportAi(jid, description, 'This is a detailed bot-error report. Diagnose and provide a safe next step. Escalate only if a specialist must investigate.');
+  if (ai.needsHuman) {
+    await offerOrCreateAiEscalation(sock, jid, description, { ...ai, category: 'Bot Offline', priority: ai.priority === 'NORMAL' ? 'HIGH' : ai.priority });
+    return;
+  }
   await conversationService.resetState(jid);
-  await send(sock, jid, TICKET_CREATED_TEXT(ticket.ticketId, ticket.priority));
-
-  await notifyAdmins(sock, jid, `🚨 BOT NOT WORKING REPORT
-
-Ticket: ${ticket.ticketId}
-Number: +${user.phoneNumber}
-Description: ${description.slice(0, 300)}`);
+  await send(sock, jid, `${ai.reply}\n\nIf the problem continues, reply "contact" to create a support ticket.`);
 }
 
 async function handleConnectionIssue(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {
   const category = (data.category as string) || 'Connection';
-  const user = await userService.findOrCreateUser(jid);
-
-  const ticket = await ticketService.createTicket({
-    customerId: user._id,
-    jid,
-    phoneNumber: user.phoneNumber,
-    category,
-    subject: 'Connection Issue',
-    description: raw.slice(0, 2000),
-    priority: 'HIGH',
-  });
-
+  const ai = await askSupportAi(jid, raw, `Issue category: ${category}. The customer already received basic connection troubleshooting. Give a targeted next step or escalate if it cannot be resolved safely.`);
+  if (ai.needsHuman) {
+    await offerOrCreateAiEscalation(sock, jid, raw, { ...ai, category: 'Connection', priority: ai.priority === 'NORMAL' ? 'HIGH' : ai.priority });
+    return;
+  }
   await conversationService.resetState(jid);
-  await send(sock, jid, `✅ A connection issue ticket has been created.\n\n🎫 Ticket: ${ticket.ticketId}\n\nOur team will assist you shortly.`);
+  await send(sock, jid, `${ai.reply}\n\nIf the issue continues after trying these steps, reply "contact" to create a support ticket.`);
 }
 
 async function handleTicketReply(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {

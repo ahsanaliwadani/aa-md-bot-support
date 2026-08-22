@@ -212,7 +212,7 @@ async function handleIdleMessage(sock: WASocket, jid: string, parsed: ReturnType
       await send(sock, jid, await getPricingText());
       break;
     case 'CONTACT':
-      const ai = await askSupportAi(parsed.raw);
+      const ai = await askSupportAi(jid, parsed.raw);
       await send(sock, jid, `${ai.reply}\n\nIf you still need a support specialist, reply YES. Otherwise reply NO or type menu.`);
       await conversationService.setState(jid, 'WAITING_FOR_CONTACT_CONFIRM', { originalMessage: parsed.raw });
       break;
@@ -238,7 +238,7 @@ async function handleIdleMessage(sock: WASocket, jid: string, parsed: ReturnType
     }
     case 'FAQ_MATCH': {
       const faq = await faqService.findFAQMatch(parsed.raw);
-      const ai = await askSupportAi(parsed.raw, faq ? `Relevant knowledge base: ${faq.question} — ${faq.answer}` : '');
+      const ai = await askSupportAi(jid, parsed.raw, faq ? `Relevant knowledge base: ${faq.question} — ${faq.answer}` : '');
       await send(sock, jid, ai.reply);
       break;
     }
@@ -258,7 +258,7 @@ Type "menu" if you need a different option.`);
         return;
       }
 
-      const ai = await askSupportAi(parsed.raw, faq ? `Relevant knowledge base: ${faq.question} — ${faq.answer}` : '');
+      const ai = await askSupportAi(jid, parsed.raw, faq ? `Relevant knowledge base: ${faq.question} — ${faq.answer}` : '');
       if (ai.needsHuman) {
         await offerOrCreateAiEscalation(sock, jid, parsed.raw, ai);
         return;
@@ -335,7 +335,7 @@ async function handleAiEscalationConfirmation(sock: WASocket, jid: string, parse
     return;
   }
   if (parsed.intent !== 'CONFIRM_YES') {
-    const ai = await askSupportAi(raw, 'The customer was offered escalation but sent more information. Continue troubleshooting unless a human is essential.');
+    const ai = await askSupportAi(jid, raw, 'The customer was offered escalation but sent more information. Continue troubleshooting unless a human is essential.');
     await send(sock, jid, `${ai.reply}
 
 Reply YES if you would like me to create a support ticket, or NO to continue with AI assistance.`);
@@ -376,7 +376,7 @@ async function handleContactConfirm(
   }
 
   if (parsed.intent !== 'CONFIRM_YES') {
-    const ai = await askSupportAi(raw);
+    const ai = await askSupportAi(jid, raw);
     await send(sock, jid, `${ai.reply}\n\nIf you still need a support specialist, reply YES. If this resolves the issue, reply NO.`);
     return;
   }
@@ -551,7 +551,7 @@ Only admin approval can issue or activate an Access Key.`,
 async function handleIssueDescription(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {
   const category = (data.category as string) || 'Other';
   const subject = (data.subject as string) || 'Support Issue';
-  const ai = await askSupportAi(raw, `Issue category: ${category}. Subject: ${subject}. Try to resolve it before escalation.`);
+  const ai = await askSupportAi(jid, raw, `Issue category: ${category}. Subject: ${subject}. Try to resolve it before escalation.`);
   if (ai.needsHuman) {
     await offerOrCreateAiEscalation(sock, jid, raw, { ...ai, category: category === 'Payment' ? 'Payment' : category === 'Access Key' ? 'Access Key' : ai.category });
     return;
@@ -583,7 +583,7 @@ async function handleBotError(sock: WASocket, jid: string, raw: string, data: Re
     `Affected command/feature: ${(data.affectedFeature as string) || 'Not provided'}`,
     `Error/screenshot note: ${raw.slice(0, 1000)}`,
   ].join('\n');
-  const ai = await askSupportAi(description, 'This is a detailed bot-error report. Diagnose and provide a safe next step. Escalate only if a specialist must investigate.');
+  const ai = await askSupportAi(jid, description, 'This is a detailed bot-error report. Diagnose and provide a safe next step. Escalate only if a specialist must investigate.');
   if (ai.needsHuman) {
     await offerOrCreateAiEscalation(sock, jid, description, { ...ai, category: 'Bot Offline', priority: ai.priority === 'NORMAL' ? 'HIGH' : ai.priority });
     return;
@@ -594,7 +594,7 @@ async function handleBotError(sock: WASocket, jid: string, raw: string, data: Re
 
 async function handleConnectionIssue(sock: WASocket, jid: string, raw: string, data: Record<string, unknown>): Promise<void> {
   const category = (data.category as string) || 'Connection';
-  const ai = await askSupportAi(raw, `Issue category: ${category}. The customer already received basic connection troubleshooting. Give a targeted next step or escalate if it cannot be resolved safely.`);
+  const ai = await askSupportAi(jid, raw, `Issue category: ${category}. The customer already received basic connection troubleshooting. Give a targeted next step or escalate if it cannot be resolved safely.`);
   if (ai.needsHuman) {
     await offerOrCreateAiEscalation(sock, jid, raw, { ...ai, category: 'Connection', priority: ai.priority === 'NORMAL' ? 'HIGH' : ai.priority });
     return;

@@ -1,11 +1,32 @@
 import { logger } from '../utils/logger';
 
-const AI_ENDPOINTS = [
-  'https://apis.davidcyriltech.my.id/ai/gpt-4o',
-  'https://apis.davidcyriltech.my.id/ai/claude-haiku-45',
-  'https://apis.davidcyriltech.my.id/ai/gemini-3-pro',
-  'https://apis.davidcyriltech.my.id/ai/claude-opus-48',
-];
+type Role = 'user' | 'assistant';
+type Category = 'Payment' | 'Access Key' | 'Connection' | 'Bot Offline' | 'Other';
+
+interface Turn { role: Role; content: string; }
+const histories = new Map<string, Turn[]>();
+const MAX_CONVERSATIONS = 500;
+const MAX_TURNS = 10;
+
+export interface SupportAiResult {
+  reply: string;
+  needsHuman: boolean;
+  category: Category;
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+}
+
+function historyFor(jid: string): Turn[] { return histories.get(jid) || []; }
+
+function remember(jid: string, role: Role, content: string): void {
+  const turns = [...historyFor(jid), { role, content: content.slice(0, 1400) }].slice(-MAX_TURNS);
+  histories.delete(jid);
+  histories.set(jid, turns);
+  if (histories.size > MAX_CONVERSATIONS) histories.delete(histories.keys().next().value as string);
+}
+
+function isGreeting(text: string): boolean {
+  return /^(hi|hello|hey|salam|assalam(?:ualaikum| o alaikum)?|aoa)\b/i.test(text.trim());
+}
 
 export interface SupportAiResult {
   reply: string;
@@ -15,65 +36,94 @@ export interface SupportAiResult {
 }
 
 function extractAiText(payload: unknown): string | null {
+  if (typeof payload === 'string') return payload.trim() || null;
   if (!payload || typeof payload !== 'object') return null;
-  const obj = payload as Record<string, unknown>;
-  for (const candidate of [obj.result, obj.response, obj.answer, obj.message, obj.text, obj.content]) {
+  const value = payload as Record<string, unknown>;
+  for (const candidate of [value.data, value.result, value.response, value.answer, value.message, value.text, value.content]) {
     if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    if (candidate && typeof candidate === 'object') {
+      const nested = extractAiText(candidate);
+      if (nested) return nested;
+    }
   }
-  return obj.data ? extractAiText(obj.data) : null;
+  return null;
 }
 
-function cleanJson(text: string): SupportAiResult | null {
-  const candidate = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').match(/\{[\s\S]*\}/)?.[0];
-  if (!candidate) return null;
+function validReply(text: string | null): text is string {
+  if (!text || text.trim().length < 2) return false;
+  const lower = text.toLowerCase();
+  return !/(failed to fetch|network error|cloudflare error|service unavailable|^(error|exception|traceback|typeerror)\b)/i.test(lower);
+}
+
+function cleanMarkdown(text: string): string {
+  return text.replace(/^#{1,6}\s+/gm, '*').replace(/\*\*(.*?)\*\*/g, '*$1*').replace(/__(.*?)__/g, '_$1_').replace(/`([^`]+)`/g, '$1').trim().slice(0, 1800);
+}
+
+function classify(message: string): Pick<SupportAiResult, 'needsHuman' | 'category' | 'priority'> {
+  const value = message.toLowerCase();
+  const category: Category = /pay|transaction|refund|receipt|charged/.test(value) ? 'Payment'
+    : /key|activat|licen[cs]e/.test(value) ? 'Access Key'
+      : /connect|qr|pair|link|network/.test(value) ? 'Connection'
+        : /offline|bug|crash|command|feature|error/.test(value) ? 'Bot Offline' : 'Other';
+  const needsHuman = /human|agent|support team|refund|charged twice|fraud|scam|security|hacked|account review/.test(value);
+  return { category, needsHuman, priority: /fraud|scam|security|hacked/.test(value) ? 'URGENT' : needsHuman ? 'HIGH' : 'NORMAL' };
+}
+
+function fallback(message: string): string {
+  const { category } = classify(message);
+  if (category === 'Payment') return 'Please share your payment request ID, payment method, and transaction reference or screenshot. Do not send card numbers, PINs, or passwords.';
+  if (category === 'Access Key') return 'Please send the exact access-key error and confirm whether the key was previously activated on another WhatsApp number.';
+  if (category === 'Connection') return 'Check your internet connection, remove the old linked device, scan a new QR code, and restart the bot. Which step fails, and what error do you see?';
+  if (category === 'Bot Offline') return 'Please share the affected command, what you expected, and the exact error message or a screenshot.';
+  return 'Please describe what happened, what you expected, and any error message or screenshot so I can help you properly.';
+}
+
+async function requestProvider(endpoint: string, parameter: string, prompt: string): Promise<string | null> {
+  const url = new URL(endpoint);
+  url.searchParams.set(parameter, prompt.slice(0, 5000));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000);
   try {
-    const value = JSON.parse(candidate) as Partial<SupportAiResult>;
-    if (typeof value.reply !== 'string' || !value.reply.trim()) return null;
-    const category = ['Payment', 'Access Key', 'Connection', 'Bot Offline', 'Other'].includes(value.category || '')
-      ? value.category as SupportAiResult['category'] : 'Other';
-    const priority = ['LOW', 'NORMAL', 'HIGH', 'URGENT'].includes(value.priority || '')
-      ? value.priority as SupportAiResult['priority'] : 'NORMAL';
-    return { reply: value.reply.trim().slice(0, 1800), needsHuman: value.needsHuman === true, category, priority };
-  } catch { return null; }
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return null;
+    const body = await response.text();
+    const parsed = (() => { try { return JSON.parse(body) as unknown; } catch { return body; } })();
+    const answer = extractAiText(parsed);
+    return validReply(answer) ? answer : null;
+  } catch { return null; } finally { clearTimeout(timeout); }
 }
 
-function localSupportAnswer(question: string): SupportAiResult {
-  const q = question.toLowerCase();
-  const category = /pay|transaction|refund|receipt/.test(q) ? 'Payment'
-    : /key|activat|licen[cs]e/.test(q) ? 'Access Key'
-      : /connect|qr|pair|link|offline|network/.test(q) ? 'Connection'
-        : /bug|crash|command|feature/.test(q) ? 'Bot Offline' : 'Other';
-  const needsHuman = /human|agent|support team|refund|charged|scam|urgent|security|hacked/.test(q);
-  const reply = category === 'Payment'
-    ? 'Please share your payment request ID, payment method, and a screenshot or transaction reference. I can check the next step. Do not share card numbers, PINs, or passwords.'
-    : category === 'Connection'
-      ? 'Please check your internet connection, remove the existing linked device, scan a new QR code, and restart the bot. Tell me which step fails and include any error message.'
-      : category === 'Access Key'
-        ? 'Please send the exact access-key error and confirm whether the key has already been activated on another WhatsApp number. Never share the full key in a public group.'
-        : category === 'Bot Offline'
-          ? 'Please tell me the affected command, what you expected to happen, and the exact error or a screenshot. I will guide you through the next check.'
-          : 'I can help with access keys, payments, connection problems, and bot issues. Please describe what happened, what you expected, and any error message or screenshot.';
-  return { reply, needsHuman, category, priority: needsHuman ? 'HIGH' : 'NORMAL' };
+async function firstSuccessful(requests: Array<Promise<string | null>>): Promise<string | null> {
+  return new Promise((resolve) => {
+    let pending = requests.length;
+    const timer = setTimeout(() => resolve(null), 12_500);
+    for (const request of requests) request.then((answer) => {
+      if (answer) { clearTimeout(timer); resolve(answer); }
+      else if (--pending === 0) { clearTimeout(timer); resolve(null); }
+    }).catch(() => { if (--pending === 0) { clearTimeout(timer); resolve(null); } });
+  });
 }
 
-export async function askSupportAi(question: string, context = ''): Promise<SupportAiResult> {
-  const prompt = `You are AA MD Bot Official Support, a professional real-time customer-support AI. Respond only in clear, complete English even if the customer writes Roman Urdu, Urdu, or mixed language. Give a direct, practical answer based on the customer's actual message; do not merely repeat an FAQ or show a menu. Ask at most one focused follow-up question when essential. Never claim a payment is approved, a key is activated, or that a human will respond unless it is confirmed. Escalate only when the issue needs account review, payment verification, a security concern, repeated failure after troubleshooting, or the customer explicitly asks for a human. Return valid JSON only: {"reply":"...","needsHuman":true|false,"category":"Payment|Access Key|Connection|Bot Offline|Other","priority":"LOW|NORMAL|HIGH|URGENT"}. Context: ${context || 'None'}. Customer message: ${question}`;
+export async function askSupportAi(jid: string, message: string, context = ''): Promise<SupportAiResult> {
+  if (isGreeting(message)) histories.delete(jid);
+  const prior = historyFor(jid).slice(-6).map((turn) => `${turn.role === 'user' ? 'Customer' : 'Assistant'}: ${turn.content}`).join('\n');
+  const prompt = `You are AA MD Bot's real-time WhatsApp support assistant. Reply only in complete, natural English. Answer the customer's actual latest message directly; never return a generic canned acknowledgement, a command menu, JSON, or API errors. Use short WhatsApp-friendly paragraphs and bullets when useful. Give troubleshooting before suggesting support. Do not claim that a payment, account, or key changed unless confirmed. Relevant support knowledge: ${context || 'none'}. Recent conversation: ${prior || 'none'}. Latest customer message: ${message}`;
+  remember(jid, 'user', message);
 
-  for (const endpoint of AI_ENDPOINTS) {
-    try {
-      const url = new URL(endpoint);
-      url.searchParams.set('text', prompt);
-      url.searchParams.set('prompt', prompt);
-      url.searchParams.set('q', prompt);
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
-      const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-      if (!response.ok) continue;
-      const answer = extractAiText(await response.json().catch(() => null));
-      const result = answer ? cleanJson(answer) : null;
-      if (result) return result;
-    } catch (err) { logger.warn({ err, endpoint }, 'Support AI endpoint failed'); }
-  }
-  return localSupportAnswer(question);
+  const answer = await firstSuccessful([
+    requestProvider('https://apis.davidcyriltech.my.id/ai/gpt-4o', 'prompt', prompt),
+    requestProvider('https://apis.davidcyriltech.my.id/ai/claude-haiku-45', 'prompt', prompt),
+    requestProvider('https://apis.davidcyriltech.my.id/ai/gemini-3-pro', 'prompt', prompt),
+    requestProvider('https://apis.davidcyriltech.my.id/ai/claude-opus-48', 'prompt', prompt),
+    requestProvider('https://davidcyriltech.my.id/ai/gemini-3-pro', 'prompt', prompt),
+    requestProvider('https://davidcyriltech.my.id/ai/gpt-5', 'prompt', prompt),
+    requestProvider('https://davidcyriltech.my.id/ai/grok-4.1-fast', 'prompt', prompt),
+    requestProvider('https://davidcyriltech.my.id/ai/claude', 'prompt', prompt),
+    requestProvider('https://api-abztech.zone.id/ai/gemini', 'message', prompt),
+    requestProvider('https://ab-llama-ai.abrahamdw882.workers.dev/', 'q', prompt),
+  ]);
+  const reply = cleanMarkdown(answer || fallback(message));
+  if (!answer) logger.warn({ jid: jid.slice(-6) }, 'All support AI providers failed; using safe local fallback');
+  remember(jid, 'assistant', reply);
+  return { reply, ...classify(message) };
 }

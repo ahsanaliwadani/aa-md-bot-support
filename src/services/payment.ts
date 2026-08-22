@@ -31,6 +31,9 @@ export async function approvePayment(
 ): Promise<{ payment: IPayment | null; keyResult?: { plainKey: string; keyId: string } }> {
   const payment = await Payment.findOne({ paymentRequestId });
   if (!payment) return { payment: null };
+  if (payment.status !== 'PENDING' && payment.status !== 'UNDER_REVIEW') {
+    throw new Error(`Payment request is already ${payment.status}`);
+  }
 
   payment.status = 'APPROVED';
   payment.reviewedAt = new Date();
@@ -64,6 +67,9 @@ export async function rejectPayment(
 ): Promise<IPayment | null> {
   const payment = await Payment.findOne({ paymentRequestId });
   if (!payment) return null;
+  // Keep rejected requests in the audit trail and reject only an actionable request.
+  // This prevents a second click from overwriting its original review details.
+  if (payment.status !== 'PENDING' && payment.status !== 'UNDER_REVIEW') return payment;
   payment.status = 'REJECTED';
   payment.reviewedAt = new Date();
   payment.reviewedBy = adminId;

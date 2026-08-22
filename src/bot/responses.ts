@@ -4,20 +4,22 @@ export async function getMenuText(): Promise<string> {
   const s = await loadSettings();
   return `🤖 ${s.botName} — OFFICIAL SUPPORT
 
-Please select an option:
+Choose what you need help with:
 
-1️⃣ Buy Access Key
-2️⃣ Access Key Activation
-3️⃣ Access Key Issue
-4️⃣ Payment Issue
-5️⃣ Bot Not Working
-6️⃣ Report a Bug
-7️⃣ Connection Issue
-8️⃣ Access Key Information
-9️⃣ Pricing
-🔟 Contact Support
+1️⃣ Buy an Access Key
+2️⃣ Activate my key
+3️⃣ Key problem
+4️⃣ Payment problem
+5️⃣ Bot not working
+6️⃣ Report a bug
+7️⃣ Connection / QR issue
+8️⃣ My key information
+9️⃣ Prices
+🔟 Talk to support
 
-Reply with a number or keyword (e.g. "buy", "activate", "pricing", "status")`;
+Reply with a number, or type a keyword such as "buy", "activate", "pricing", "payment status", or "ticket status".
+
+You can type "menu" at any time to safely restart.`;
 }
 
 export async function getPricingText(): Promise<string> {
@@ -55,7 +57,10 @@ No monthly subscription.
 
 1 Access Key = 1 WhatsApp Number.
 
-Please send the WhatsApp number you want to connect.`;
+Please send the WhatsApp number you want to connect, including its country code.
+Example: +92XXXXXXXXXX
+
+Type "menu" to cancel.`;
 }
 
 export async function getWelcomeText(): Promise<string> {
@@ -76,7 +81,7 @@ Select 0 or type "menu" to return to the main menu.`;
 }
 
 export const ACTIVATE_PROMPT =
-  '🔐 Access Key Activation\n\nPlease send your Access Key in the format:\nAA-XXXX-XXXX-XXXX';
+  '🔐 Access Key Activation\n\nPaste your Access Key exactly in this format:\nAA-XXXX-XXXX-XXXX\n\nType "menu" to cancel.';
 
 export const KEY_ISSUE_MENU = `🔐 Access Key Support
 

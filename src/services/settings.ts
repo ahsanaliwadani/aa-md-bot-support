@@ -32,6 +32,7 @@ export async function loadSettings(): Promise<AppSettings> {
     paymentInstructions:
       (map.get('paymentInstructions') as string) ??
       DEFAULT_SETTINGS.paymentInstructions,
+    jazzCash: (map.get('jazzCash') as AppSettings['jazzCash']) ?? DEFAULT_SETTINGS.jazzCash,
     sessionTimeoutMin:
       (map.get('sessionTimeoutMin') as number) ??
       DEFAULT_SETTINGS.sessionTimeoutMin,

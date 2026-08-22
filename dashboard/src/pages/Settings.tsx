@@ -85,6 +85,12 @@ export default function Settings() {
               <label className="block text-sm text-slate-400 mb-1">Payment Instructions</label>
               <textarea value={settings.paymentInstructions} onChange={(e) => setSettings({ ...settings, paymentInstructions: e.target.value })} rows={3} className="input" />
             </div>
+            <div className="rounded-lg border border-slate-700 p-3 space-y-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-200"><input type="checkbox" checked={settings.jazzCash.enabled} onChange={(e) => setSettings({ ...settings, jazzCash: { ...settings.jazzCash, enabled: e.target.checked } })} className="w-4 h-4" /> Enable JazzCash for Pakistan</label>
+              <input value={settings.jazzCash.accountTitle} onChange={(e) => setSettings({ ...settings, jazzCash: { ...settings.jazzCash, accountTitle: e.target.value } })} className="input" placeholder="JazzCash account title" />
+              <input value={settings.jazzCash.accountNumber} onChange={(e) => setSettings({ ...settings, jazzCash: { ...settings.jazzCash, accountNumber: e.target.value } })} className="input" placeholder="JazzCash account number" />
+              <textarea value={settings.jazzCash.instructions} onChange={(e) => setSettings({ ...settings, jazzCash: { ...settings.jazzCash, instructions: e.target.value } })} rows={2} className="input" placeholder="Payment proof instructions" />
+            </div>
             <div>
               <label className="block text-sm text-slate-400 mb-1">Session Timeout (minutes)</label>
               <input type="number" value={settings.sessionTimeoutMin} onChange={(e) => setSettings({ ...settings, sessionTimeoutMin: Number(e.target.value) })} className="input" />

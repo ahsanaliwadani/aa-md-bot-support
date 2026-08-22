@@ -59,6 +59,8 @@ export interface Payment {
   status: string;
   submittedAt: string;
   reviewedAt?: string;
+  notes?: string;
+  proofMediaUrl?: string;
   customerId?: { customerId: string; phoneNumber: string; name?: string };
   reviewedBy?: { name: string; email: string };
   accessKeyId?: { keyId: string; displayId: string; status: string };
@@ -112,6 +114,7 @@ export interface AppSettings {
     international: { amount: number; currency: string; label: string };
   };
   paymentInstructions: string;
+  jazzCash: { enabled: boolean; accountTitle: string; accountNumber: string; instructions: string };
   sessionTimeoutMin: number;
 }
 
@@ -226,6 +229,7 @@ export interface ConversationSummary {
   customerName: string;
   country: string;
   blocked: boolean;
+  botPaused: boolean;
   lastMessageBody: string;
   lastMessageDirection: string;
   lastMessageAt: string;

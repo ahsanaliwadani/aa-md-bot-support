@@ -10,6 +10,11 @@ const FALLBACK_SERVERS: AccessKeyServer[] = [
   { id: 4, name: 'Server 4', url: 'https://144-24-220-107.nip.io' },
 ];
 
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return 'Something went wrong';
+}
+
 export default function AccessKeys() {
   const [data, setData] = useState<{ items: AccessKey[]; total: number }>({ items: [], total: 0 });
   const [servers, setServers] = useState<AccessKeyServer[]>(FALLBACK_SERVERS);
@@ -29,7 +34,10 @@ export default function AccessKeys() {
 
   const load = () => {
     setLoading(true);
-    keyApi.list({ page, search, status }).then(setData).finally(() => setLoading(false));
+    keyApi.list({ page, search, status })
+      .then(setData)
+      .catch((err) => showToast(getErrorMessage(err)))
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, [page, search, status]);
@@ -57,6 +65,11 @@ export default function AccessKeys() {
       setNewKey(result);
       showToast('Key generated — copy it now, it won\'t be shown again');
       load();
+    } catch (err) {
+      // Ye line ab asal backend error dikhayegi — e.g. "Insufficient permissions",
+      // "Authentication required", ya validation error
+      showToast(`Generate failed: ${getErrorMessage(err)}`);
+      console.error('Generate key failed:', err);
     } finally {
       setGenerating(false);
     }
@@ -64,32 +77,44 @@ export default function AccessKeys() {
 
   const handleAction = async (key: AccessKey, action: 'activate' | 'suspend' | 'reactivate' | 'revoke') => {
     if (action === 'revoke') { setConfirmRevoke(key); return; }
-    if (action === 'suspend') {
-      const reason = prompt('Reason for suspension?') || 'Suspended by admin';
-      await keyApi.suspend(key.keyId, reason);
-    } else if (action === 'activate') {
-      await keyApi.activate(key.keyId);
-    } else if (action === 'reactivate') {
-      await keyApi.reactivate(key.keyId);
+    try {
+      if (action === 'suspend') {
+        const reason = prompt('Reason for suspension?') || 'Suspended by admin';
+        await keyApi.suspend(key.keyId, reason);
+      } else if (action === 'activate') {
+        await keyApi.activate(key.keyId);
+      } else if (action === 'reactivate') {
+        await keyApi.reactivate(key.keyId);
+      }
+      showToast(`Key ${action}d`);
+      load();
+    } catch (err) {
+      showToast(getErrorMessage(err));
     }
-    showToast(`Key ${action}d`);
-    load();
   };
 
   const handleAssignPhone = async (key: AccessKey) => {
     const number = prompt('Assign this pending key to phone number (e.g. 923001234567)');
     if (!number) return;
-    await keyApi.assignPhone(key.keyId, number);
-    showToast('Key assigned to phone number');
-    load();
+    try {
+      await keyApi.assignPhone(key.keyId, number);
+      showToast('Key assigned to phone number');
+      load();
+    } catch (err) {
+      showToast(getErrorMessage(err));
+    }
   };
 
   const handleDelete = async (key: AccessKey) => {
     if (!window.confirm(`Delete access key ${key.keyId} permanently?`)) return;
-    await keyApi.delete(key.keyId);
-    showToast('Access key deleted');
-    setSelectedKey(null);
-    load();
+    try {
+      await keyApi.delete(key.keyId);
+      showToast('Access key deleted');
+      setSelectedKey(null);
+      load();
+    } catch (err) {
+      showToast(getErrorMessage(err));
+    }
   };
 
   const selectedServer = servers.find((server) => server.id === selectedServerId) || servers[0];
@@ -207,7 +232,24 @@ export default function AccessKeys() {
         </div>
       )}
 
-      <ConfirmDialog open={!!confirmRevoke} title="Revoke Access Key" message={`Are you sure you want to revoke key ${confirmRevoke?.keyId}? This action cannot be undone.`} onConfirm={async () => { if (confirmRevoke) { await keyApi.revoke(confirmRevoke.keyId, revokeReason || 'Revoked by admin'); setConfirmRevoke(null); setRevokeReason(''); showToast('Key revoked'); load(); } }} onCancel={() => { setConfirmRevoke(null); setRevokeReason(''); }} />
+      <ConfirmDialog
+        open={!!confirmRevoke}
+        title="Revoke Access Key"
+        message={`Are you sure you want to revoke key ${confirmRevoke?.keyId}? This action cannot be undone.`}
+        onConfirm={async () => {
+          if (!confirmRevoke) return;
+          try {
+            await keyApi.revoke(confirmRevoke.keyId, revokeReason || 'Revoked by admin');
+            setConfirmRevoke(null);
+            setRevokeReason('');
+            showToast('Key revoked');
+            load();
+          } catch (err) {
+            showToast(getErrorMessage(err));
+          }
+        }}
+        onCancel={() => { setConfirmRevoke(null); setRevokeReason(''); }}
+      />
     </div>
   );
 }

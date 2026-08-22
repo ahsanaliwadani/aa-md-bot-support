@@ -7,6 +7,10 @@ import { paginationSchema } from '../utils/validation';
 import { z } from 'zod';
 import { audit } from '../middleware/audit';
 import { AccessKey, Admin } from '../models';
+import { hashKey, maskKey } from '../utils/crypto';
+import { findOrCreateUser } from '../services/user';
+import { phoneToJid } from '../utils/phone';
+import { getRemoteServer, remoteGenerateKey } from '../services/remoteBotClient';
 
 const router = Router();
 
@@ -96,6 +100,10 @@ function resolveExpiry(expiresInDays?: unknown, expiresAt?: unknown): Date | und
   return undefined;
 }
 
+function normalizePhone(phone?: string): string | undefined {
+  if (!phone) return undefined;
+  return phone.replace(/[^0-9]/g, '');
+}
 
 async function serializeAccessKey(id: string) {
   const key = await AccessKey.findOne({ keyId: id })
@@ -104,7 +112,6 @@ async function serializeAccessKey(id: string) {
   if (!key) throw new Error('Access key not found');
   return key;
 }
-
 
 router.get('/history', async (req: Request, res: Response) => {
   if (!requireSecureAccessKeyEndpoint(req, res)) return;
@@ -179,33 +186,96 @@ router.get('/servers', authRequired, requirePermission('keys:read'), (_req: Requ
   res.json({ items: accessKeyService.ACCESS_KEY_SERVERS });
 });
 
+/**
+ * Saves a local copy of a key that was actually created on a remote bot VM,
+ * so the dashboard table/history can show it. The remote bot VM remains the
+ * source of truth for verification — this record is for admin visibility only.
+ */
+async function mirrorRemoteKey(
+  server: { id: number; name: string; url: string },
+  remote: { accessKey?: string; record?: { id: string; assignedPhone?: string; status: string; activatedAt: number | null; expiresAt: number | null } },
+  connectionId: string | undefined,
+  createdBy: unknown,
+) {
+  const plain = remote.accessKey!;
+  const record = remote.record!;
+  const phone = normalizePhone(record.assignedPhone);
+  const status = (record.status || 'active').toUpperCase();
+
+  const keyId = `AK-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+
+  const key = await AccessKey.create({
+    keyId,
+    keyHash: hashKey(plain),
+    displayId: maskKey(plain),
+    assignedNumber: phone,
+    status,
+    createdBy,
+    activatedAt: record.activatedAt ? new Date(record.activatedAt) : (status === 'ACTIVE' ? new Date() : undefined),
+    expiresAt: record.expiresAt ? new Date(record.expiresAt) : undefined,
+    serverId: server.id,
+    serverName: server.name,
+    serverUrl: server.url,
+    connectionId: connectionId || 'default',
+    history: [
+      {
+        action: 'KEY_CREATED',
+        at: new Date(),
+        detail: `Generated on ${server.name} via remote bot API (remote id: ${record.id})`,
+      },
+    ],
+  });
+
+  if (phone) {
+    const user = await findOrCreateUser(phoneToJid(phone));
+    key.customerId = user._id;
+    await key.save();
+  }
+
+  return {
+    id: key._id.toString(),
+    keyId: key.keyId,
+    plainKey: plain,
+    displayId: key.displayId,
+    server,
+    phone,
+    expiresAt: key.expiresAt,
+    connectionId: key.connectionId,
+    status: key.status,
+  };
+}
+
 router.post(
   '/generate',
   validateBody(generateSchema),
   async (req: Request, res: Response) => {
+    const server = getRemoteServer(req.body.serverId);
+
+    // Secret-header path (SSH script / internal integrations)
     if (requestHasEndpointSecret(req)) {
-      const expiresAt = resolveExpiry(req.body.expiresInDays, req.body.expiresAt);
-      const result = await accessKeyService.generateKey({
-        phone: req.body.phone,
-        connectionId: req.body.connectionId,
-        serverId: req.body.serverId,
-        activate: true,
-        expiresAt,
-      });
-      res.json(result);
-      return;
+      try {
+        const remote = await remoteGenerateKey(server, {
+          phone: req.body.phone,
+          connectionId: req.body.connectionId,
+          expiresInDays: req.body.expiresInDays,
+          expiresAt: req.body.expiresAt,
+          createdBy: 'integration-api',
+        });
+        const mirrored = await mirrorRemoteKey(server, remote, req.body.connectionId, undefined);
+        return res.json(mirrored);
+      } catch (err) {
+        return res.status(502).json({ error: (err as Error).message });
+      }
     }
 
+    // Admin dashboard path — now calls the real bot VM instead of
+    // writing straight to this app's own MongoDB.
     let authPassed = false;
-    authRequired(req, res, () => {
-      authPassed = true;
-    });
+    authRequired(req, res, () => { authPassed = true; });
     if (!authPassed) return;
 
     let permissionPassed = false;
-    requirePermission('keys:generate')(req, res, () => {
-      permissionPassed = true;
-    });
+    requirePermission('keys:generate')(req, res, () => { permissionPassed = true; });
     if (!permissionPassed) return;
 
     const admin = await Admin.findById(req.admin!.id);
@@ -213,15 +283,20 @@ router.post(
       res.status(404).json({ error: 'Admin not found' });
       return;
     }
-    const result = await accessKeyService.generateKey({
-      createdBy: admin._id,
-      phone: req.body.phone,
-      connectionId: req.body.connectionId,
-      serverId: req.body.serverId,
-      activate: Boolean(req.body.phone),
-      expiresAt: resolveExpiry(req.body.expiresInDays, req.body.expiresAt),
-    });
-    res.json(result);
+
+    try {
+      const remote = await remoteGenerateKey(server, {
+        phone: req.body.phone,
+        connectionId: req.body.connectionId,
+        expiresInDays: req.body.expiresInDays,
+        expiresAt: req.body.expiresAt,
+        createdBy: admin.email,
+      });
+      const mirrored = await mirrorRemoteKey(server, remote, req.body.connectionId, admin._id);
+      res.json(mirrored);
+    } catch (err) {
+      res.status(502).json({ error: (err as Error).message });
+    }
   },
 );
 

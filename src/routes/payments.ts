@@ -5,7 +5,8 @@ import { validateQuery, validateBody } from '../middleware/validate';
 import { paginationSchema } from '../utils/validation';
 import { z } from 'zod';
 import { audit } from '../middleware/audit';
-import { Admin } from '../models';
+import { Admin, User } from '../models';
+import { botManager } from '../bot/BotManager';
 
 const router = Router();
 
@@ -43,6 +44,10 @@ router.post(
     if (!result.payment) {
       res.status(404).json({ error: 'Payment request not found' });
       return;
+    }
+    const customer = await User.findById(result.payment.customerId);
+    if (customer && result.keyResult && botManager.isConnected()) {
+      await botManager.sendText(customer.jid, `✅ *Payment Approved*\n\nThank you! Your payment for ${result.payment.paymentRequestId} has been approved.\n\n🔐 *Your Access Key*\n${result.keyResult.plainKey}\n\n📱 This key is assigned to: +${customer.phoneNumber}\n🖥️ Server: Your selected AA MD server\n\nPlease keep this key private. To activate it, reply *2* or type *activate* and paste the key exactly as shown.`);
     }
     res.json(result);
   },

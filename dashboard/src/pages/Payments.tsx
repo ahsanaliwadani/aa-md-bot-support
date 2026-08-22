@@ -33,6 +33,14 @@ export default function Payments() {
     load();
   };
 
+  const handleReject = async (p: Payment) => {
+    const notes = window.prompt('Optional rejection reason (shown in the payment record):', '') || undefined;
+    await paymentApi.reject(p.paymentRequestId, notes);
+    setConfirmReject(null);
+    showToast('Payment marked as rejected. It remains available in the Rejected filter.');
+    load();
+  };
+
   return (
     <div className="space-y-6">
       {toast && <Toast message={toast} onClose={() => setToast('')} />}
@@ -73,15 +81,17 @@ export default function Payments() {
                 <th className="text-left px-4 py-3">Amount</th>
                 <th className="text-left px-4 py-3">Country</th>
                 <th className="text-left px-4 py-3">Status</th>
+                <th className="text-left px-4 py-3">Review note</th>
+                <th className="text-left px-4 py-3">Proof</th>
                 <th className="text-left px-4 py-3">Date</th>
                 <th className="text-left px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="text-center py-8 text-slate-500">Loading...</td></tr>
+                <tr><td colSpan={9} className="text-center py-8 text-slate-500">Loading...</td></tr>
               ) : data.items.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-8 text-slate-500">No payments found</td></tr>
+                <tr><td colSpan={9} className="text-center py-8 text-slate-500">No payments found</td></tr>
               ) : data.items.map((p) => (
                 <tr key={p._id} className="border-t border-slate-800">
                   <td className="px-4 py-3 text-primary-400">{p.paymentRequestId}</td>
@@ -89,9 +99,11 @@ export default function Payments() {
                   <td className="px-4 py-3 text-slate-300">{p.amount} {p.currency}</td>
                   <td className="px-4 py-3 text-slate-300">{p.country}</td>
                   <td className="px-4 py-3"><Badge status={p.status} /></td>
+                  <td className="px-4 py-3 text-xs text-slate-400 max-w-[180px]">{p.notes || '—'}</td>
+                  <td className="px-4 py-3">{p.proofMediaUrl ? <a href={p.proofMediaUrl} target="_blank" rel="noreferrer" className="text-xs text-primary-400 hover:underline">View proof</a> : <span className="text-xs text-slate-500">—</span>}</td>
                   <td className="px-4 py-3 text-slate-400">{new Date(p.submittedAt).toLocaleDateString()}</td>
                   <td className="px-4 py-3">
-                    {p.status === 'PENDING' && (
+                    {(p.status === 'PENDING' || p.status === 'UNDER_REVIEW') && (
                       <div className="flex gap-1">
                         <button onClick={() => handleApprove(p)} className="btn-success text-xs px-2 py-1 flex items-center gap-1"><Check className="w-3 h-3" /> Approve</button>
                         <button onClick={() => setConfirmReject(p)} className="btn-danger text-xs px-2 py-1 flex items-center gap-1"><X className="w-3 h-3" /> Reject</button>
@@ -110,8 +122,8 @@ export default function Payments() {
       <ConfirmDialog
         open={!!confirmReject}
         title="Reject Payment"
-        message={`Reject payment request ${confirmReject?.paymentRequestId}? The customer will be notified.`}
-        onConfirm={async () => { if (confirmReject) { await paymentApi.reject(confirmReject.paymentRequestId, 'Rejected by admin'); setConfirmReject(null); showToast('Payment rejected'); load(); } }}
+        message={`Reject payment request ${confirmReject?.paymentRequestId}? The record will be kept with a REJECTED status for history.`}
+        onConfirm={() => { if (confirmReject) void handleReject(confirmReject); }}
         onCancel={() => setConfirmReject(null)}
       />
     </div>

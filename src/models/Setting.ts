@@ -28,6 +28,7 @@ export interface AppSettings {
     international: { amount: number; currency: string; label: string };
   };
   paymentInstructions: string;
+  jazzCash: { enabled: boolean; accountTitle: string; accountNumber: string; instructions: string };
   sessionTimeoutMin: number;
 }
 
@@ -46,5 +47,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   paymentInstructions:
     'After confirming your number, our team will contact you with payment details and activation instructions.',
+  jazzCash: {
+    enabled: false,
+    accountTitle: '',
+    accountNumber: '',
+    instructions: 'Send payment proof (screenshot or transaction ID) in this chat after payment.',
+  },
   sessionTimeoutMin: 10,
 };

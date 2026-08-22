@@ -32,6 +32,12 @@ const settingsSchema = z.object({
     })
     .optional(),
   paymentInstructions: z.string().max(5000).optional(),
+  jazzCash: z.object({
+    enabled: z.boolean(),
+    accountTitle: z.string().max(100),
+    accountNumber: z.string().max(50),
+    instructions: z.string().max(1000),
+  }).optional(),
   sessionTimeoutMin: z.number().min(1).max(120).optional(),
 });
 

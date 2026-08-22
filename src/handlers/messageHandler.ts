@@ -177,6 +177,16 @@ export async function handleMessage(sock: WASocket, msg: WAMessage): Promise<voi
 
   await userService.updateUserContact(jid);
 
+  // A payment screenshot sent in chat is attached to the latest actionable
+  // request so administrators can review it directly from Payments.
+  if (media.mediaUrl) {
+    await Payment.findOneAndUpdate(
+      { customerId: user._id, status: { $in: ['PENDING', 'UNDER_REVIEW'] } },
+      { proofMediaUrl: media.mediaUrl, proofSubmittedAt: new Date(), status: 'UNDER_REVIEW' },
+      { sort: { createdAt: -1 } },
+    );
+  }
+
   if (user.botPaused) {
     const openTicket = await Ticket.findOne({
       customerId: user._id,
@@ -496,6 +506,10 @@ async function handleWaitingForConfirmation(sock: WASocket, jid: string, parsed:
       method: 'Manual',
     });
 
+    const jazzCashDetails = isPakistan && settings.jazzCash.enabled && settings.jazzCash.accountNumber
+      ? `\n\n📲 *JazzCash Payment Details*\nAccount Title: ${settings.jazzCash.accountTitle || 'Not specified'}\nAccount Number: ${settings.jazzCash.accountNumber}\n\n${settings.jazzCash.instructions}`
+      : `\n\n${settings.paymentInstructions}`;
+
     await conversationService.resetState(jid);
     await send(sock, jid, `${REQUEST_RECEIVED_TEXT(number)}
 
@@ -504,7 +518,9 @@ Amount: ${pricing.label}
 Country: ${country}
 Payment Request: ${payment.paymentRequestId}
 
-Your payment will be reviewed by an administrator. After approval, your access key can be issued.`);
+${jazzCashDetails}
+
+After payment, please send your proof in this chat. Your payment will be reviewed by an administrator, then your access key will be issued.`);
 
     // Admin notification
     await notifyAdmins(sock, jid, `🚨 NEW ACCESS KEY REQUEST\n\nNumber: +${number}\nCountry: ${country}\nRequest ID: ${payment.paymentRequestId}\nStatus: PAYMENT PENDING\n\nOpen Dashboard: ${settings.botName} Dashboard`);

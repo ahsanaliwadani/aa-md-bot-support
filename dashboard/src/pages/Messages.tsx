@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { messageApi, ConversationSummary, ChatMessage, Customer } from '../lib/types';
 import { Toast } from '../components/ui';
 import { Bot, CheckCheck, ChevronLeft, ImagePlus, MessageSquare, MoreVertical, Search, Send, UserCheck, X } from 'lucide-react';
@@ -16,6 +16,15 @@ const dayLabel = (value: string) => {
 const timeLabel = (value: string) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const phoneFromJid = (jid: string) => jid.split('@')[0];
 const displayName = (conversation: ConversationSummary) => conversation.customerName || `+${conversation.phoneNumber}`;
+
+/** Render WhatsApp's lightweight formatting without injecting raw HTML. */
+const formatWhatsAppText = (text: string) => text.split(/(\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~|`[^`\n]+`)/g).map((part, index) => {
+  if (part.startsWith('*') && part.endsWith('*')) return <strong key={index}>{part.slice(1, -1)}</strong>;
+  if (part.startsWith('_') && part.endsWith('_')) return <em key={index}>{part.slice(1, -1)}</em>;
+  if (part.startsWith('~') && part.endsWith('~')) return <s key={index}>{part.slice(1, -1)}</s>;
+  if (part.startsWith('`') && part.endsWith('`')) return <code key={index} className="rounded bg-black/20 px-1 font-mono text-[0.92em]">{part.slice(1, -1)}</code>;
+  return <Fragment key={index}>{part}</Fragment>;
+});
 
 export default function Messages() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -210,7 +219,7 @@ export default function Messages() {
                   <div className="space-y-1.5">{group.messages.map((message) => <div key={message._id} className={`flex ${message.direction === 'OUTGOING' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[88%] rounded-lg px-2.5 py-1.5 text-sm shadow-sm sm:max-w-[72%] ${message.direction === 'OUTGOING' ? 'rounded-tr-none bg-[#005c4b] text-white' : 'rounded-tl-none bg-[#202c33] text-slate-100'}`}>
                       {message.mediaUrl && <a href={message.mediaUrl} target="_blank" rel="noreferrer" className="mb-1.5 block"><img src={message.mediaUrl} alt={message.body || 'WhatsApp image'} className="max-h-80 w-full rounded-md object-contain" loading="lazy" /></a>}
-                      {message.body && <p className="whitespace-pre-wrap break-words leading-5">{message.body}</p>}
+                      {message.body && <p className="whitespace-pre-wrap break-words leading-5">{formatWhatsAppText(message.body)}</p>}
                       <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${message.direction === 'OUTGOING' ? 'text-emerald-100/70' : 'text-slate-500'}`}><span>{timeLabel(message.at)}</span>{message.direction === 'OUTGOING' && <CheckCheck className="h-3.5 w-3.5 text-sky-300" />}</div>
                     </div>
                   </div>)}</div>

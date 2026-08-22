@@ -12,6 +12,8 @@ export interface IPayment extends Document {
   reviewedAt?: Date;
   reviewedBy?: mongoose.Types.ObjectId;
   notes: string;
+  proofMediaUrl?: string;
+  proofSubmittedAt?: Date;
   accessKeyId?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -35,6 +37,8 @@ const PaymentSchema = new Schema<IPayment>(
     reviewedAt: { type: Date },
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'Admin' },
     notes: { type: String, default: '' },
+    proofMediaUrl: { type: String },
+    proofSubmittedAt: { type: Date },
     accessKeyId: { type: Schema.Types.ObjectId, ref: 'AccessKey' },
   },
   { timestamps: true },

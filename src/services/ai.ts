@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { loadSettings } from './settings';
 
 type Role = 'user' | 'assistant';
 type Category = 'Payment' | 'Access Key' | 'Connection' | 'Bot Offline' | 'Other';
@@ -107,7 +108,11 @@ async function firstSuccessful(requests: Array<Promise<string | null>>): Promise
 export async function askSupportAi(jid: string, message: string, context = ''): Promise<SupportAiResult> {
   if (isGreeting(message)) histories.delete(jid);
   const prior = historyFor(jid).slice(-6).map((turn) => `${turn.role === 'user' ? 'Customer' : 'Assistant'}: ${turn.content}`).join('\n');
-  const prompt = `You are AA MD Bot's real-time WhatsApp support assistant. Reply only in complete, natural English. Answer the customer's actual latest message directly; never return a generic canned acknowledgement, a command menu, JSON, or API errors. Use short WhatsApp-friendly paragraphs and bullets when useful. Give troubleshooting before suggesting support. Do not claim that a payment, account, or key changed unless confirmed. Relevant support knowledge: ${context || 'none'}. Recent conversation: ${prior || 'none'}. Latest customer message: ${message}`;
+  const settings = await loadSettings().catch(() => null);
+  const paymentContext = settings?.jazzCash.enabled && settings.jazzCash.accountNumber
+    ? `For Pakistan payments, JazzCash is enabled: account title ${settings.jazzCash.accountTitle || 'not specified'}, account number ${settings.jazzCash.accountNumber}; instruction: ${settings.jazzCash.instructions}. Only share this when the customer is asking about payment or buying from Pakistan; ask them to send proof in this chat afterward.`
+    : settings?.paymentInstructions || 'none';
+  const prompt = `You are AA MD Bot's real-time WhatsApp support assistant. Reply only in complete, natural English. Answer the customer's actual latest message directly; never return a generic canned acknowledgement, a command menu, JSON, or API errors. Use short WhatsApp-friendly paragraphs and bullets when useful. Give troubleshooting before suggesting support. Do not claim that a payment, account, or key changed unless confirmed. Payment guidance: ${paymentContext}. Relevant support knowledge: ${context || 'none'}. Recent conversation: ${prior || 'none'}. Latest customer message: ${message}`;
   remember(jid, 'user', message);
 
   const answer = await firstSuccessful([

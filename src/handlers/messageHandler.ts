@@ -72,10 +72,36 @@ const SPAM_WINDOW_MS = 60_000;
 const SPAM_MAX_MESSAGES = 20;
 const lastMessage = new Map<string, { at: number; text: string }>();
 const messageWindows = new Map<string, { startedAt: number; count: number }>();
+const botMessageIds = new Map<string, number>();
+
+/** Mark messages emitted by this service so their WhatsApp echo is not mistaken for an app reply. */
+export function trackBotMessage(messageId?: string | null): void {
+  if (!messageId) return;
+  const now = Date.now();
+  botMessageIds.set(messageId, now);
+  for (const [id, sentAt] of botMessageIds) {
+    if (now - sentAt > 5 * 60_000) botMessageIds.delete(id);
+  }
+}
+
+function isTrackedBotMessage(messageId?: string | null): boolean {
+  return !!messageId && botMessageIds.delete(messageId);
+}
 
 async function send(sock: WASocket, jid: string, text: string): Promise<void> {
-  await sock.sendMessage(jid, { text });
+  const sent = await sock.sendMessage(jid, { text });
+  trackBotMessage(sent?.key?.id);
   await messageService.logMessage({ jid, direction: 'OUTGOING', body: text });
+}
+
+/** Use the support AI to recover a customer from an invalid step without losing their flow. */
+async function sendInvalidFlowGuidance(sock: WASocket, jid: string, input: string, requirement: string): Promise<void> {
+  const ai = await askSupportAi(
+    jid,
+    input,
+    `${requirement} The input does not meet that requirement. Give a brief, friendly correction and the exact next action. Do not reset the flow or create a ticket.`,
+  );
+  await send(sock, jid, `${ai.reply}\n\nType "menu" at any time to start over.`);
 }
 
 export async function handleMessage(sock: WASocket, msg: WAMessage): Promise<void> {
@@ -90,7 +116,7 @@ export async function handleMessage(sock: WASocket, msg: WAMessage): Promise<voi
   // Only suppress exact duplicate message retries; do not drop fast menu replies like "Hi" then "1".
   const now = Date.now();
   const last = lastMessage.get(jid);
-  if (last && last.text === text && now - last.at < COOLDOWN_MS) return;
+  if (!msg.key.fromMe && last && last.text === text && now - last.at < COOLDOWN_MS) return;
   lastMessage.set(jid, { at: now, text });
 
   const phone = jidToPhone(jid);
@@ -101,7 +127,26 @@ export async function handleMessage(sock: WASocket, msg: WAMessage): Promise<voi
   });
 
   if (msg.key.fromMe) {
-    await userService.findOrCreateUser(jid);
+    // Ignore the echo of a message sent by this service. Only a message typed
+    // in the linked WhatsApp app should claim the conversation for a human.
+    if (isTrackedBotMessage(msg.key.id)) return;
+    // A reply sent from the linked WhatsApp application is a human takeover.
+    // Pause automation before the customer can send their next message so the
+    // bot never talks over the support agent.
+    const user = await userService.findOrCreateUser(jid);
+    if (!user.botPaused) {
+      user.botPaused = true;
+      user.botPausedAt = new Date();
+      user.supportStatus = 'IN_PROGRESS';
+      await user.save();
+      await conversationService.resetState(jid);
+      logger.info({ jid: phone.slice(-4) }, 'Chat assigned to human after WhatsApp app reply');
+    }
+    const openTicket = await Ticket.findOne({
+      customerId: user._id,
+      status: { $in: ['OPEN', 'IN_PROGRESS', 'WAITING_FOR_USER'] },
+    }).sort({ updatedAt: -1 });
+    if (openTicket) await ticketService.addReply(openTicket.ticketId, 'ADMIN', text.slice(0, 2000));
     await userService.updateUserContact(jid);
     await messageService.logMessage({ jid, direction: 'OUTGOING', body: text, messageType: media.messageType, mediaUrl: media.mediaUrl });
     logger.info({ jid: phone.slice(-4) }, 'Logged outbound WhatsApp message from connected account');
@@ -283,7 +328,7 @@ async function handleStatefulMessage(
       await handleWaitingForNumber(sock, jid, parsed, rawText);
       break;
     case 'WAITING_FOR_CONFIRMATION':
-      await handleWaitingForConfirmation(sock, jid, parsed, data);
+      await handleWaitingForConfirmation(sock, jid, parsed, data, rawText);
       break;
     case 'WAITING_FOR_ACCESS_KEY':
       await handleWaitingForAccessKey(sock, jid, parsed, rawText);
@@ -416,7 +461,7 @@ async function handleWaitingForNumber(sock: WASocket, jid: string, parsed: Retur
     return;
   }
   if (parsed.intent !== 'NUMBER') {
-    await send(sock, jid, '⚠️ Please send a valid WhatsApp number (e.g. +92XXXXXXXXXX).');
+    await sendInvalidFlowGuidance(sock, jid, raw, 'You are collecting the WhatsApp number for an access-key request. Ask for one complete international phone number, for example +92XXXXXXXXXX.');
     return;
   }
 
@@ -426,7 +471,7 @@ async function handleWaitingForNumber(sock: WASocket, jid: string, parsed: Retur
   await send(sock, jid, `✅ Number received.\n\n📱 Number to Connect: +${number}\n\nPlease confirm this is correct.\nReply YES or NO.`);
 }
 
-async function handleWaitingForConfirmation(sock: WASocket, jid: string, parsed: ReturnType<typeof parseIntent>, data: Record<string, unknown>): Promise<void> {
+async function handleWaitingForConfirmation(sock: WASocket, jid: string, parsed: ReturnType<typeof parseIntent>, data: Record<string, unknown>, raw: string): Promise<void> {
   const number = data.number as string;
   const country = data.country as string;
 
@@ -473,7 +518,7 @@ Your payment will be reviewed by an administrator. After approval, your access k
     await conversationService.setState(jid, 'WAITING_FOR_NUMBER');
     await send(sock, jid, 'Please send the correct WhatsApp number you want to connect.');
   } else {
-    await send(sock, jid, 'Please reply YES or NO.');
+    await sendInvalidFlowGuidance(sock, jid, raw, `The customer must confirm the number +${number}. Tell them to reply YES to continue or NO to enter a different number.`);
   }
 }
 
@@ -495,7 +540,7 @@ async function handleWaitingForAccessKey(sock: WASocket, jid: string, parsed: Re
     await conversationService.resetState(jid);
     await send(sock, jid, '❌ This Access Key is already assigned to another number.\n\nContact official support.\n\nType "menu" to return.');
   } else {
-    await send(sock, jid, '❌ Invalid Access Key.\n\nPlease check the key and try again.\nFormat: AA-XXXX-XXXX-XXXX\n\nOr type "menu" to cancel.');
+    await sendInvalidFlowGuidance(sock, jid, raw, 'The customer is activating an access key. Explain that the expected format is AA-XXXX-XXXX-XXXX, ask them to paste the exact key, and remind them that they can type menu to cancel.');
   }
 }
 
@@ -511,7 +556,7 @@ async function handleIssueCategory(sock: WASocket, jid: string, raw: string, _da
   };
   const category = categories[num];
   if (!category) {
-    await send(sock, jid, 'Please reply with a number 1-6.');
+    await sendInvalidFlowGuidance(sock, jid, raw, 'The customer must select one access-key issue category. Give a concise numbered choice list: 1 key not working, 2 key rejected, 3 key already used, 4 wrong number, 5 key lost, 6 other.');
     return;
   }
   const labels: Record<string, string> = {

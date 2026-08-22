@@ -10,7 +10,7 @@ import qrcode from 'qrcode-terminal';
 import path from 'path';
 import fs from 'fs/promises';
 import { logger } from '../utils/logger';
-import { handleMessage } from '../handlers/messageHandler';
+import { handleMessage, trackBotMessage } from '../handlers/messageHandler';
 import { SystemEvent } from '../models';
 
 const SESSION_DIR = path.resolve(process.cwd(), 'sessions');
@@ -199,7 +199,8 @@ export class BotManager {
       throw new Error('WhatsApp bot is not connected');
     }
     try {
-      await this.sock.sendMessage(jid, { text });
+      const sent = await this.sock.sendMessage(jid, { text });
+      trackBotMessage(sent?.key?.id);
     } catch (err) {
       logger.error({ err, jid }, 'Failed to send message');
       throw err;
@@ -211,7 +212,8 @@ export class BotManager {
       throw new Error('WhatsApp bot is not connected');
     }
     try {
-      await this.sock.sendMessage(jid, { image, caption, mimetype });
+      const sent = await this.sock.sendMessage(jid, { image, caption, mimetype });
+      trackBotMessage(sent?.key?.id);
     } catch (err) {
       logger.error({ err, jid }, 'Failed to send image');
       throw err;

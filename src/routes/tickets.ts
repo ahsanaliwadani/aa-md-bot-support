@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { ticketService } from '../services';
-import { Ticket } from '../models';
+import { Ticket, User } from '../models';
 import { authRequired, requirePermission } from '../middleware/auth';
 import { validateQuery, validateBody } from '../middleware/validate';
 import { paginationSchema } from '../utils/validation';
@@ -63,6 +63,13 @@ router.post(
       res.status(404).json({ error: 'Ticket not found' });
       return;
     }
+
+    await User.findByIdAndUpdate(ticket.customerId, {
+      botPaused: true,
+      botPausedBy: admin._id,
+      botPausedAt: new Date(),
+      supportStatus: 'IN_PROGRESS',
+    });
 
     if (botManager.isConnected()) {
       await botManager.sendText(
@@ -144,6 +151,12 @@ router.post(
       res.status(404).json({ error: 'Ticket not found' });
       return;
     }
+    await User.findByIdAndUpdate(ticket.customerId, {
+      botPaused: true,
+      botPausedBy: admin._id,
+      botPausedAt: new Date(),
+      supportStatus: 'IN_PROGRESS',
+    });
     await ticket.populate('customerId', 'customerId phoneNumber country name');
     res.json({ ticket });
   },

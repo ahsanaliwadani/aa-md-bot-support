@@ -59,6 +59,7 @@ export interface Payment {
   status: string;
   submittedAt: string;
   reviewedAt?: string;
+  notes?: string;
   customerId?: { customerId: string; phoneNumber: string; name?: string };
   reviewedBy?: { name: string; email: string };
   accessKeyId?: { keyId: string; displayId: string; status: string };
@@ -226,6 +227,7 @@ export interface ConversationSummary {
   customerName: string;
   country: string;
   blocked: boolean;
+  botPaused: boolean;
   lastMessageBody: string;
   lastMessageDirection: string;
   lastMessageAt: string;

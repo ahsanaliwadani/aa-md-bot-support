@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { dashboardApi, DashboardStats } from '../lib/types';
 import { StatCard, Card } from '../components/ui';
-import { Users, Key, CreditCard, Ticket, CheckCircle, XCircle, Wifi, Database } from 'lucide-react';
+import { Users, Key, CreditCard, Ticket, CheckCircle, XCircle, Wifi, Database, Bot, ArrowRight } from 'lucide-react';
 
 export default function Overview() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -60,6 +60,22 @@ export default function Overview() {
           </div>
         </Card>
       </div>
+
+      <Card className="border-primary-500/20 bg-gradient-to-r from-primary-500/10 to-surface-900">
+        <div className="flex items-start gap-3">
+          <div className="rounded-lg bg-primary-500/20 p-2"><Bot className="w-5 h-5 text-primary-400" /></div>
+          <div>
+            <h2 className="font-semibold text-white">AI-first support workflow</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-300">
+              The assistant provides real-time guidance before escalating. Tickets are created only for account review,
+              payment verification, security concerns, repeated failures, or when a customer requests a specialist.
+            </p>
+            <p className="mt-2 flex items-center gap-2 text-xs font-medium text-primary-300">
+              AI guidance <ArrowRight className="w-3 h-3" /> customer confirmation <ArrowRight className="w-3 h-3" /> team ticket
+            </p>
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }

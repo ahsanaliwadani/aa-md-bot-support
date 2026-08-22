@@ -38,6 +38,12 @@ export const config = {
   sessionSecret: required('SESSION_SECRET', 'dev-only-session-change-me'),
   accessKeySecret: required('ACCESS_KEY_SECRET', 'Ahsan&ali12:@'),
   accessKeyEndpointSecret: required('ACCESS_KEY_ENDPOINT_SECRET', ''),
+  accessKeyServerUrls: [
+    required('ACCESS_KEY_SERVER_1_URL', 'https://193.122.82.38.nip.io'),
+    required('ACCESS_KEY_SERVER_2_URL', 'https://141-147-132-189.nip.io'),
+    required('ACCESS_KEY_SERVER_3_URL', 'https://130-110-123-57.nip.io'),
+    required('ACCESS_KEY_SERVER_4_URL', 'https://144-24-220-107.nip.io'),
+  ],
   cookieSecure: bool('COOKIE_SECURE', false),
 
   adminEmail: required('ADMIN_EMAIL', 'owner@aamdbot.com'),

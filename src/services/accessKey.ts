@@ -5,13 +5,13 @@ import mongoose from 'mongoose';
 import { emitRealtime } from './realtime';
 import { findOrCreateUser } from './user';
 import { phoneToJid } from '../utils/phone';
+import { config } from '../config';
 
-export const ACCESS_KEY_SERVERS = [
-  { id: 1, name: 'Server 1', url: 'https://193.122.82.38.nip.io' },
-  { id: 2, name: 'Server 2', url: 'https://141-147-132-189.nip.io' },
-  { id: 3, name: 'Server 3', url: 'https://130-110-123-57.nip.io' },
-  { id: 4, name: 'Server 4', url: 'https://144-24-220-107.nip.io' },
-] as const;
+export const ACCESS_KEY_SERVERS = config.accessKeyServerUrls.map((url, index) => ({
+  id: (index + 1) as 1 | 2 | 3 | 4,
+  name: `Server ${index + 1}`,
+  url,
+}));
 
 export type AccessKeyServerId = (typeof ACCESS_KEY_SERVERS)[number]['id'];
 
@@ -21,6 +21,7 @@ export interface GenerateKeyInput {
   connectionId?: string;
   serverId?: AccessKeyServerId;
   activate?: boolean;
+  expiresAt?: Date;
 }
 
 export interface GenerateKeyResult {
@@ -60,8 +61,7 @@ export async function generateKey(input: mongoose.Types.ObjectId | GenerateKeyIn
   const keyId = `AK-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
   const displayId = maskKey(plain);
   const phone = normalizePhone(opts.phone);
-  // Access keys are lifetime keys. Expiry is retained on the model only for legacy records.
-  const expiresAt = undefined;
+  const expiresAt = opts.expiresAt;
   const status: IAccessKey['status'] = opts.activate || phone ? 'ACTIVE' : 'PENDING';
 
   const key = await AccessKey.create({

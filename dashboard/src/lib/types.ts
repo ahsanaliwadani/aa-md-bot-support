@@ -227,6 +227,7 @@ export interface ConversationSummary {
   customerName: string;
   country: string;
   blocked: boolean;
+  botPaused: boolean;
   lastMessageBody: string;
   lastMessageDirection: string;
   lastMessageAt: string;

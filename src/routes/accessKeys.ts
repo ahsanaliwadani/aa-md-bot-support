@@ -43,6 +43,11 @@ const generateSchema = z.object({
   phone: z.string().min(7).max(20).optional(),
   connectionId: z.string().min(1).max(80).default('default'),
   serverId: z.number().int().min(1).max(4).default(1),
+  expiresInDays: z.number().int().min(1).max(3650).optional(),
+  expiresAt: z.string().datetime().optional(),
+  createdBy: z.string().min(1).max(64).optional(),
+}).refine((data) => !(data.expiresInDays && data.expiresAt), {
+  message: 'Use either expiresInDays or expiresAt, not both',
 });
 
 function hasHeaderSecret(req: Request, secret: string): boolean {
@@ -62,7 +67,7 @@ function requestHasEndpointSecret(req: Request): boolean {
 }
 
 function requestHasIntegrationSecret(req: Request): boolean {
-  return requestHasEndpointSecret(req) || requestHasAccessKeySecret(req);
+  return requestHasEndpointSecret(req);
 }
 
 function requireSecureAccessKeyEndpoint(req: Request, res: Response): boolean {
@@ -75,6 +80,20 @@ function requireSecureAccessKeyEndpoint(req: Request, res: Response): boolean {
     return false;
   }
   return true;
+}
+
+function resolveExpiry(expiresInDays?: unknown, expiresAt?: unknown): Date | undefined {
+  if (expiresAt) {
+    const value = new Date(String(expiresAt));
+    if (Number.isNaN(value.getTime()) || value <= new Date()) throw new Error('expiresAt must be a future ISO-8601 date');
+    return value;
+  }
+  if (expiresInDays !== undefined) {
+    const days = Number(expiresInDays);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error('expiresInDays must be an integer between 1 and 3650');
+    return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  }
+  return undefined;
 }
 
 
@@ -101,10 +120,7 @@ router.get('/history', async (req: Request, res: Response) => {
 });
 
 router.post('/action', async (req: Request, res: Response) => {
-  if (!requestHasIntegrationSecret(req)) {
-    res.status(401).json({ ok: false, error: 'Unauthorized' });
-    return;
-  }
+  if (!requireSecureAccessKeyEndpoint(req, res)) return;
   try {
     const action = String(req.body.action || '').toLowerCase();
     const id = req.body.id || req.body.keyId;
@@ -113,11 +129,13 @@ router.post('/action', async (req: Request, res: Response) => {
     const createdBy = String(req.body.createdBy || 'secure-api').slice(0, 64);
 
     if (action === 'generate') {
+      const expiresAt = resolveExpiry(req.body.expiresInDays, req.body.expiresAt);
       const result = await accessKeyService.generateKey({
         phone,
         connectionId: req.body.connectionId || 'default',
         serverId: req.body.serverId,
         activate: Boolean(phone),
+        expiresAt,
       });
       return res.json({ ok: true, accessKey: result.plainKey, record: result });
     }
@@ -165,12 +183,14 @@ router.post(
   '/generate',
   validateBody(generateSchema),
   async (req: Request, res: Response) => {
-    if (requestHasAccessKeySecret(req)) {
+    if (requestHasEndpointSecret(req)) {
+      const expiresAt = resolveExpiry(req.body.expiresInDays, req.body.expiresAt);
       const result = await accessKeyService.generateKey({
         phone: req.body.phone,
         connectionId: req.body.connectionId,
         serverId: req.body.serverId,
         activate: true,
+        expiresAt,
       });
       res.json(result);
       return;
@@ -199,6 +219,7 @@ router.post(
       connectionId: req.body.connectionId,
       serverId: req.body.serverId,
       activate: Boolean(req.body.phone),
+      expiresAt: resolveExpiry(req.body.expiresInDays, req.body.expiresAt),
     });
     res.json(result);
   },

@@ -7,51 +7,57 @@ const AI_ENDPOINTS = [
   'https://apis.davidcyriltech.my.id/ai/claude-opus-48',
 ];
 
+export interface SupportAiResult {
+  reply: string;
+  needsHuman: boolean;
+  category: 'Payment' | 'Access Key' | 'Connection' | 'Bot Offline' | 'Other';
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+}
+
 function extractAiText(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const obj = payload as Record<string, unknown>;
-  const candidates = [obj.result, obj.response, obj.answer, obj.message, obj.text, obj.content];
-  for (const candidate of candidates) {
+  for (const candidate of [obj.result, obj.response, obj.answer, obj.message, obj.text, obj.content]) {
     if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
   }
-  if (obj.data) return extractAiText(obj.data);
-  return null;
+  return obj.data ? extractAiText(obj.data) : null;
 }
 
-function localSupportAnswer(question: string): string {
+function cleanJson(text: string): SupportAiResult | null {
+  const candidate = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').match(/\{[\s\S]*\}/)?.[0];
+  if (!candidate) return null;
+  try {
+    const value = JSON.parse(candidate) as Partial<SupportAiResult>;
+    if (typeof value.reply !== 'string' || !value.reply.trim()) return null;
+    const category = ['Payment', 'Access Key', 'Connection', 'Bot Offline', 'Other'].includes(value.category || '')
+      ? value.category as SupportAiResult['category'] : 'Other';
+    const priority = ['LOW', 'NORMAL', 'HIGH', 'URGENT'].includes(value.priority || '')
+      ? value.priority as SupportAiResult['priority'] : 'NORMAL';
+    return { reply: value.reply.trim().slice(0, 1800), needsHuman: value.needsHuman === true, category, priority };
+  } catch { return null; }
+}
+
+function localSupportAnswer(question: string): SupportAiResult {
   const q = question.toLowerCase();
-  const romanUrdu = /\b(salam|suna|kya|kaise|nhi|nahin|acha|bata|kr|karo|hai|ha|ho)\b/i.test(question);
-  const greet = /\b(hi|hello|hey|salam|assalam|suna)\b/i.test(question);
-
-  if (greet && romanUrdu) {
-    return 'Wa Alaikum Assalam 😊 Main AA MD Bot Official Support assistant hoon. Aap bataen kis cheez mein help chahiye — access key buy/activate, payment, connection issue, ya bot not working? Agar quick options chahiye hon to "menu" likh dein.';
-  }
-  if (greet) {
-    return 'Hello 😊 I am the AA MD Bot Official Support assistant. Tell me what you need help with — buying/activating an access key, payment, connection, or bot not working. Type "menu" for quick options.';
-  }
-  if (/price|pricing|cost|rate|kitn|fees|payment/.test(q)) {
-    return romanUrdu
-      ? 'AA MD Bot access key one-time payment hai: Pakistan Rs. 1,000 aur international $5 USD. Buy karne ke liye “1” ya “buy” send karein.'
-      : 'AA MD Bot access key is a one-time payment: Pakistan Rs. 1,000 and international $5 USD. Send “1” or “buy” to start.';
-  }
-  if (/activate|activation|key|invalid|rejected/.test(q)) {
-    return romanUrdu
-      ? 'Activation ke liye apni access key AA-XXXX-XXXX-XXXX format mein send karein. Agar key reject ho rahi hai to “3” send karke Access Key Issue create karein.'
-      : 'For activation, send your access key in AA-XXXX-XXXX-XXXX format. If it is rejected, send “3” to create an Access Key Issue.';
-  }
-  if (/connect|qr|pair|link|offline|not working|band/.test(q)) {
-    return romanUrdu
-      ? 'Connection issue ke liye internet check karein, linked devices remove karke QR dobara scan karein, phir bot restart karein. Agar issue rahe to “7” send karke ticket banwa lein.'
-      : 'For connection issues, check internet, remove linked devices, scan the QR again, then restart the bot. If it continues, send “7” to create a ticket.';
-  }
-
-  return romanUrdu
-    ? 'Samajh gaya. Main aapki help kar sakta hoon — please thori detail dein: issue access key, payment, connection, ya bot not working mein se kis se related hai? Quick options ke liye “menu” likhein.'
-    : 'I understand. Please share a little more detail: is this about access key, payment, connection, or bot not working? Type “menu” for quick options.';
+  const category = /pay|transaction|refund|receipt/.test(q) ? 'Payment'
+    : /key|activat|licen[cs]e/.test(q) ? 'Access Key'
+      : /connect|qr|pair|link|offline|network/.test(q) ? 'Connection'
+        : /bug|crash|command|feature/.test(q) ? 'Bot Offline' : 'Other';
+  const needsHuman = /human|agent|support team|refund|charged|scam|urgent|security|hacked/.test(q);
+  const reply = category === 'Payment'
+    ? 'Please share your payment request ID, payment method, and a screenshot or transaction reference. I can check the next step. Do not share card numbers, PINs, or passwords.'
+    : category === 'Connection'
+      ? 'Please check your internet connection, remove the existing linked device, scan a new QR code, and restart the bot. Tell me which step fails and include any error message.'
+      : category === 'Access Key'
+        ? 'Please send the exact access-key error and confirm whether the key has already been activated on another WhatsApp number. Never share the full key in a public group.'
+        : category === 'Bot Offline'
+          ? 'Please tell me the affected command, what you expected to happen, and the exact error or a screenshot. I will guide you through the next check.'
+          : 'I can help with access keys, payments, connection problems, and bot issues. Please describe what happened, what you expected, and any error message or screenshot.';
+  return { reply, needsHuman, category, priority: needsHuman ? 'HIGH' : 'NORMAL' };
 }
 
-export async function askSupportAi(question: string): Promise<string> {
-  const prompt = `You are AA MD Bot Official Support, a powerful WhatsApp support assistant. Reply in the user's language (English, Urdu, or Roman Urdu), warmly and briefly. Never send the generic phrase "Thanks for your message. Our support team will review it" as the main answer. Do not dump the full menu unless the user asks for menu/help. For greetings, greet back and ask how you can help. Diagnose issues, ask one useful follow-up question when needed, and mention exact menu numbers only when they clearly fit: 1 buy key, 2 activate key, 3 key issue, 4 payment issue, 5 bot not working, 6 bug report, 7 connection issue, 8 key info, 9 pricing, 10 contact. User message: ${question}`;
+export async function askSupportAi(question: string, context = ''): Promise<SupportAiResult> {
+  const prompt = `You are AA MD Bot Official Support, a professional real-time customer-support AI. Respond only in clear, complete English even if the customer writes Roman Urdu, Urdu, or mixed language. Give a direct, practical answer based on the customer's actual message; do not merely repeat an FAQ or show a menu. Ask at most one focused follow-up question when essential. Never claim a payment is approved, a key is activated, or that a human will respond unless it is confirmed. Escalate only when the issue needs account review, payment verification, a security concern, repeated failure after troubleshooting, or the customer explicitly asks for a human. Return valid JSON only: {"reply":"...","needsHuman":true|false,"category":"Payment|Access Key|Connection|Bot Offline|Other","priority":"LOW|NORMAL|HIGH|URGENT"}. Context: ${context || 'None'}. Customer message: ${question}`;
 
   for (const endpoint of AI_ENDPOINTS) {
     try {
@@ -59,20 +65,15 @@ export async function askSupportAi(question: string): Promise<string> {
       url.searchParams.set('text', prompt);
       url.searchParams.set('prompt', prompt);
       url.searchParams.set('q', prompt);
-
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 12000);
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timeout);
-
       if (!response.ok) continue;
-      const payload = await response.json().catch(() => null);
-      const answer = extractAiText(payload);
-      if (answer) return answer.slice(0, 1800);
-    } catch (err) {
-      logger.warn({ err, endpoint }, 'Support AI endpoint failed');
-    }
+      const answer = extractAiText(await response.json().catch(() => null));
+      const result = answer ? cleanJson(answer) : null;
+      if (result) return result;
+    } catch (err) { logger.warn({ err, endpoint }, 'Support AI endpoint failed'); }
   }
-
   return localSupportAnswer(question);
 }

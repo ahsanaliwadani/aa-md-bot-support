@@ -96,25 +96,16 @@ sudo cat /opt/aamd-support/access-key-api-examples.txt
 
 Open the printed dashboard URL in your browser. Manage WhatsApp connection from **WhatsApp Connect** in the dashboard, then manage customers, messages, tickets, payments, access keys, and settings there.
 
-### Access key API command
+### External access-key API secret
 
-Both secret styles work after deploy because `ACCESS_KEY_SECRET=Ahsan&ali12:@` is configured automatically:
-
-Keys generated through this API and the dashboard are **lifetime keys**; do not send an expiry field.
+`deploy.sh` generates a dedicated `ACCESS_KEY_ENDPOINT_SECRET` for website-to-bot requests and writes it to `/opt/aamd-support/admin-credentials.txt`. Keep it in the external website backend environment only; do not place it in browser code.
 
 ```bash
-curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
-  -H "Content-Type: application/json" \
-  -H "X-Access-Key-Secret: Ahsan&ali12:@" \
-  -d '{"phone":"923001234567","connectionId":"default"}'
+sudo cat /opt/aamd-support/admin-credentials.txt
+sudo cat /opt/aamd-support/access-key-api-examples.txt
 ```
 
-```bash
-curl -X POST "http://YOUR_SERVER_OR_DOMAIN/api/access-keys/generate" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer Ahsan&ali12:@" \
-  -d '{"phone":"923001234567","connectionId":"default"}'
-```
+The external endpoint accepts either `X-Access-Key-Secret` or `Authorization: Bearer` with that dedicated secret. Choose the target with `serverId` from `1` through `4`; configure each server URL via `ACCESS_KEY_SERVER_1_URL` through `ACCESS_KEY_SERVER_4_URL`. See [Four-server external access-key API](#four-server-external-access-key-api) for the complete contract.
 
 ### Useful server commands
 
@@ -447,76 +438,58 @@ All configurable from the dashboard Settings page.
 
 Proprietary — AA MD Bot. All rights reserved.
 
-## Four-Server Access Key Generation Endpoint
+## Four-server external access-key API
 
-The access-key API can now generate a key for a selected backend server first, then bind it to a phone number and connection ID.
-
-Configured servers:
-
-| Server | URL |
-|--------|-----|
-| Server 1 | `https://193.122.82.38.nip.io` |
-| Server 2 | `https://141-147-132-189.nip.io` |
-| Server 3 | `https://130-110-123-57.nip.io` |
-| Server 4 | `https://144-24-220-107.nip.io` |
-
-### Required secret
-
-Set a strong random API secret in `.env`:
+Each server URL is configured independently in the bot `.env`. Keep the same integration secret on the server that receives website requests, and change only the four URL values when your bot servers move:
 
 ```env
-ACCESS_KEY_SECRET=Ahsan&ali12:@
+# Required: use a new random value, never the old ACCESS_KEY_SECRET value.
+ACCESS_KEY_ENDPOINT_SECRET=PASTE_A_LONG_RANDOM_SECRET
+
+ACCESS_KEY_SERVER_1_URL=https://193.122.82.38.nip.io
+ACCESS_KEY_SERVER_2_URL=https://141-147-132-189.nip.io
+ACCESS_KEY_SERVER_3_URL=https://130-110-123-57.nip.io
+ACCESS_KEY_SERVER_4_URL=https://144-24-220-107.nip.io
 ```
 
-The current shared secret requested for all four servers is `Ahsan&ali12:@`. If you ever want to rotate it, generate a replacement on your Oracle VM:
+Generate the secret once with `openssl rand -hex 32`. `deploy.sh` creates and preserves this secret automatically. The external website must use `ACCESS_KEY_ENDPOINT_SECRET`; `ACCESS_KEY_SECRET` is not accepted by the external integration endpoints.
 
-```bash
-openssl rand -hex 32
+### External website environment
+
+```env
+AA_BOT_API_URL=https://YOUR_SERVER_IP.nip.io/api
+ACCESS_KEY_ENDPOINT_SECRET=PASTE_THE_SAME_SECRET
 ```
 
-Restart after editing `.env`:
+### Protected external endpoints
+
+Send either `X-Access-Key-Secret: $ACCESS_KEY_ENDPOINT_SECRET` or `Authorization: Bearer $ACCESS_KEY_ENDPOINT_SECRET` on every request.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api` | Health check |
+| `POST` | `/api/access-keys/generate` | Create a key for server 1–4 |
+| `GET` | `/api/access-keys?search=PHONE_OR_KEY` | List or search keys |
+| `GET` | `/api/access-keys?id=ACCESS_KEY_ID` | Read one key |
+| `GET` | `/api/access-keys/history?id=ACCESS_KEY_ID` | Read key history |
+| `POST` | `/api/access-keys/action` | Secure management actions |
+
+For generation, send `serverId` (`1`, `2`, `3`, or `4`), plus optional `phone`, `connectionId`, `expiresInDays` (1–3650), or a future ISO `expiresAt`. Omit both expiry fields for a lifetime key. Do not send both expiry fields together.
 
 ```bash
-pm2 restart aamd-support
-```
-
-### Generate key with Bearer authorization
-
-```bash
-curl -X POST "https://YOUR-DOMAIN/api/access-keys/generate" \
+curl -X POST "https://YOUR_SERVER_IP.nip.io/api/access-keys/generate" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer Ahsan&ali12:@" \
-  -d '{
-    "serverId": 1,
-    "phone": "923001234567",
-    "connectionId": "default"
-  }'
+  -H "X-Access-Key-Secret: $ACCESS_KEY_ENDPOINT_SECRET" \
+  -d '{"serverId":4,"phone":"923001234567","connectionId":"website","expiresInDays":30}'
 ```
 
-### Generate key with alternate secret header
+The `/action` endpoint supports `generate`, `search`, `view`, `history`, `assign`, `activate`, `suspend`, `revoke`, and `delete`. For example:
 
 ```bash
-curl -X POST "https://YOUR-DOMAIN/api/access-keys/generate" \
+curl -X POST "https://YOUR_SERVER_IP.nip.io/api/access-keys/action" \
   -H "Content-Type: application/json" \
-  -H "X-Access-Key-Secret: Ahsan&ali12:@" \
-  -d '{
-    "serverId": 2,
-    "phone": "923001234567",
-    "connectionId": "default"
-  }'
-```
-
-`serverId` must be `1`, `2`, `3`, or `4`. There is no generation limit enforced per server. Dashboard users can also select the server from **Access Keys → Generate Access Key by Server**.
-
-### Permanently delete a key
-
-Use the `id` returned by the generate/action response (or the `keyId`). This endpoint uses the same `ACCESS_KEY_SECRET` header and immediately notifies connected dashboards.
-
-```bash
-curl -X POST "https://YOUR-DOMAIN/api/access-keys/action" \
-  -H "Content-Type: application/json" \
-  -H "X-Access-Key-Secret: Ahsan&ali12:@" \
-  -d '{"action":"delete","id":"ACCESS_KEY_ID"}'
+  -H "Authorization: Bearer $ACCESS_KEY_ENDPOINT_SECRET" \
+  -d '{"action":"activate","id":"ACCESS_KEY_ID","createdBy":"website-backend"}'
 ```
 
 ## Oracle Cloud deployment checklist
@@ -524,7 +497,7 @@ curl -X POST "https://YOUR-DOMAIN/api/access-keys/action" \
 1. Create an Ubuntu VM in Oracle Cloud, open VCN ingress for TCP `22`, `80`, and `443` only.
 2. SSH into the VM and clone/upload this repository to `/opt/aamd-support`.
 3. Run `sudo ./deploy.sh` from the repository root.
-4. Edit `/opt/aamd-support/.env` and set `APP_URL`, `DASHBOARD_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `JWT_SECRET`, `SESSION_SECRET`, and `ACCESS_KEY_SECRET`.
+4. Edit `/opt/aamd-support/.env` and set `APP_URL`, `DASHBOARD_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `JWT_SECRET`, `SESSION_SECRET`, `ACCESS_KEY_ENDPOINT_SECRET`, and the four `ACCESS_KEY_SERVER_*_URL` values.
 5. Run `npm run build && npm run build:dashboard` to verify the production build.
 6. Restart with `pm2 restart aamd-support` and verify `curl http://127.0.0.1:3000/health`.
 7. Add HTTPS with `sudo certbot --nginx -d YOUR-DOMAIN`, then set `COOKIE_SECURE=true` and restart PM2.

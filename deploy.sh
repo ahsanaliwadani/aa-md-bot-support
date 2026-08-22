@@ -19,6 +19,7 @@ DEPLOY_LOG="/tmp/aamd-support-deploy.log"
 SCRIPT_START=$(date +%s)
 DOMAIN_NAME="${DOMAIN_NAME:-${1:-}}"
 ACCESS_KEY_SECRET_VALUE="Ahsan&ali12:@"
+ACCESS_KEY_ENDPOINT_SECRET_VALUE=""
 ADMIN_PASSWORD_VALUE=""
 
 G='\033[0;32m'; C='\033[0;36m'; Y='\033[1;33m'; B='\033[1m'; R='\033[0m'; RE='\033[0;31m'
@@ -156,6 +157,10 @@ if [ -n "$DOMAIN_NAME" ]; then
 else
   APP_PUBLIC_URL="http://${PUBLIC_IP}"
 fi
+if [ -f "$APP_DIR/.env" ]; then
+  ACCESS_KEY_ENDPOINT_SECRET_VALUE=$(sed -n 's/^ACCESS_KEY_ENDPOINT_SECRET=//p' "$APP_DIR/.env" | head -1)
+fi
+ACCESS_KEY_ENDPOINT_SECRET_VALUE=${ACCESS_KEY_ENDPOINT_SECRET_VALUE:-$(openssl rand -hex 32)}
 if [ ! -f "$APP_DIR/.env" ]; then
   cat > "$APP_DIR/.env" <<ENV
 NODE_ENV=production
@@ -170,6 +175,11 @@ MONGODB_DB_NAME=${MONGO_DB}
 JWT_SECRET=${JWT_SECRET}
 SESSION_SECRET=${SESSION_SECRET}
 ACCESS_KEY_SECRET=${ACCESS_KEY_SECRET_VALUE}
+ACCESS_KEY_ENDPOINT_SECRET=${ACCESS_KEY_ENDPOINT_SECRET_VALUE}
+ACCESS_KEY_SERVER_1_URL=https://193.122.82.38.nip.io
+ACCESS_KEY_SERVER_2_URL=https://141-147-132-189.nip.io
+ACCESS_KEY_SERVER_3_URL=https://130-110-123-57.nip.io
+ACCESS_KEY_SERVER_4_URL=https://144-24-220-107.nip.io
 COOKIE_SECURE=false
 
 ADMIN_EMAIL=owner@aamdbot.com
@@ -184,7 +194,7 @@ SESSION_TIMEOUT_MINUTES=10
 BACKUP_KEEP=7
 ENV
   chmod 600 "$APP_DIR/.env"
-  ok ".env generated with automatic admin password and fixed access-key API secret"
+  ok ".env generated with automatic admin password and secure external access-key API secret"
 else
   sed -i "s#^MONGODB_URI=.*#MONGODB_URI=${AUTH_URI}#" "$APP_DIR/.env"
   sed -i "s#^MONGODB_DB_NAME=.*#MONGODB_DB_NAME=${MONGO_DB}#" "$APP_DIR/.env"
@@ -194,7 +204,11 @@ else
   else
     echo "ACCESS_KEY_SECRET=${ACCESS_KEY_SECRET_VALUE}" >> "$APP_DIR/.env"
   fi
-  ok ".env preserved; MongoDB credentials and fixed access-key API secret refreshed"
+  grep -q '^ACCESS_KEY_ENDPOINT_SECRET=' "$APP_DIR/.env" || echo "ACCESS_KEY_ENDPOINT_SECRET=${ACCESS_KEY_ENDPOINT_SECRET_VALUE}" >> "$APP_DIR/.env"
+  for server_id in 1 2 3 4; do
+    grep -q "^ACCESS_KEY_SERVER_${server_id}_URL=" "$APP_DIR/.env" || echo "ACCESS_KEY_SERVER_${server_id}_URL=https://$(case $server_id in 1) echo 193.122.82.38;; 2) echo 141-147-132-189;; 3) echo 130-110-123-57;; 4) echo 144-24-220-107;; esac).nip.io" >> "$APP_DIR/.env"
+  done
+  ok ".env preserved; MongoDB credentials and access-key integration settings refreshed"
 fi
 APP_PORT=$(sed -n 's/^PORT=//p' "$APP_DIR/.env" | head -1)
 APP_PORT=${APP_PORT:-7000}
@@ -205,19 +219,19 @@ cat > "$APP_DIR/admin-credentials.txt" <<CREDS
 Dashboard URL: ${APP_PUBLIC_URL}
 Admin email: ${ADMIN_EMAIL_VALUE:-owner@aamdbot.com}
 Admin password: ${ADMIN_PASSWORD_FILE_VALUE:-check-existing-env}
-Access key API secret: ${ACCESS_KEY_SECRET_VALUE}
+External access-key API secret: ${ACCESS_KEY_ENDPOINT_SECRET_VALUE}
 CREDS
 cat > "$APP_DIR/access-key-api-examples.txt" <<EXAMPLES
 # Header secret method
 curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" \
   -H "Content-Type: application/json" \
-  -H "X-Access-Key-Secret: ${ACCESS_KEY_SECRET_VALUE}" \
+  -H "X-Access-Key-Secret: ${ACCESS_KEY_ENDPOINT_SECRET_VALUE}" \
   -d '{"phone":"923001234567","connectionId":"default"}'
 
 # Bearer secret method
 curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${ACCESS_KEY_SECRET_VALUE}" \
+  -H "Authorization: Bearer ${ACCESS_KEY_ENDPOINT_SECRET_VALUE}" \
   -d '{"phone":"923001234567","connectionId":"default"}'
 EXAMPLES
 chmod 600 "$APP_DIR/admin-credentials.txt" "$APP_DIR/access-key-api-examples.txt"
@@ -331,11 +345,11 @@ echo ""
 cat <<SUMMARY
 Credentials file: sudo cat ${APP_DIR}/admin-credentials.txt
 Access key examples: sudo cat ${APP_DIR}/access-key-api-examples.txt
-Access key API secret: ${ACCESS_KEY_SECRET_VALUE}
+External access-key API secret: ${ACCESS_KEY_ENDPOINT_SECRET_VALUE}
 Generate key with X-Access-Key-Secret:
-curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" -H "Content-Type: application/json" -H "X-Access-Key-Secret: ${ACCESS_KEY_SECRET_VALUE}" -d '{"phone":"923001234567","connectionId":"default"}'
+curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" -H "Content-Type: application/json" -H "X-Access-Key-Secret: ${ACCESS_KEY_ENDPOINT_SECRET_VALUE}" -d '{"phone":"923001234567","connectionId":"default"}'
 Generate key with Authorization Bearer:
-curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" -H "Content-Type: application/json" -H "Authorization: Bearer ${ACCESS_KEY_SECRET_VALUE}" -d '{"phone":"923001234567","connectionId":"default"}'
+curl -X POST "${APP_PUBLIC_URL}/api/access-keys/generate" -H "Content-Type: application/json" -H "Authorization: Bearer ${ACCESS_KEY_ENDPOINT_SECRET_VALUE}" -d '{"phone":"923001234567","connectionId":"default"}'
 Optional HTTPS domain deploy: sudo DOMAIN_NAME=support.yourdomain.com ./deploy.sh
 WhatsApp connect: open dashboard → WhatsApp Connect → pairing code / QR.
 SUMMARY

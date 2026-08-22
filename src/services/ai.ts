@@ -28,6 +28,13 @@ function isGreeting(text: string): boolean {
   return /^(hi|hello|hey|salam|assalam(?:ualaikum| o alaikum)?|aoa)\b/i.test(text.trim());
 }
 
+export interface SupportAiResult {
+  reply: string;
+  needsHuman: boolean;
+  category: 'Payment' | 'Access Key' | 'Connection' | 'Bot Offline' | 'Other';
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+}
+
 function extractAiText(payload: unknown): string | null {
   if (typeof payload === 'string') return payload.trim() || null;
   if (!payload || typeof payload !== 'object') return null;
